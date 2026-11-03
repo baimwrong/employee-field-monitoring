@@ -10,12 +10,14 @@
             Define operational territories, configure geofence coverage radii, and assign field officers to manage designated areas.
         </p>
     </div>
+    @if(auth()->user()->isAdmin())
     <div class="d-flex gap-2">
         <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#createAreaModal">
             <i class="fa-solid fa-plus"></i>
             <span>Create Geographical Area</span>
         </button>
     </div>
+    @endif
 </div>
 
 <!-- Search & Statistics Bar -->
@@ -61,21 +63,25 @@
                             </div>
                         </div>
 
+                        @if(auth()->user()->hasAnyRole(['admin', 'supervisor']))
                         <div class="dropdown">
                             <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="dropdown">
                                 <i class="fa-solid fa-ellipsis-vertical text-muted"></i>
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
+                                @if(auth()->user()->isAdmin())
                                 <li>
                                     <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editAreaModal{{ $area->id }}">
                                         <i class="fa-regular fa-pen-to-square me-2 text-primary"></i>Edit Area
                                     </button>
                                 </li>
+                                @endif
                                 <li>
                                     <button class="dropdown-item text-primary" data-bs-toggle="modal" data-bs-target="#assignModal{{ $area->id }}">
                                         <i class="fa-solid fa-user-plus me-2"></i>Assign Employee
                                     </button>
                                 </li>
+                                @if(auth()->user()->isAdmin())
                                 <li><hr class="dropdown-divider"></li>
                                 <li>
                                     <form action="{{ route('areas.destroy', $area) }}" method="POST" onsubmit="return confirm('Are you sure you want to delete this geographical area?');">
@@ -86,8 +92,10 @@
                                         </button>
                                     </form>
                                 </li>
+                                @endif
                             </ul>
                         </div>
+                        @endif
                     </div>
 
                     <p class="text-muted small mb-3">
@@ -148,6 +156,7 @@
                                         </div>
 
                                         <!-- Detach Action -->
+                                        @if(auth()->user()->hasAnyRole(['admin', 'supervisor']))
                                         <form action="{{ route('areas.removeEmployee', [$area, $emp]) }}" method="POST" onsubmit="return confirm('Remove {{ $emp->name }} from {{ $area->name }}?');">
                                             @csrf
                                             @method('DELETE')
@@ -155,6 +164,7 @@
                                                 <i class="fa-solid fa-user-minus"></i>
                                             </button>
                                         </form>
+                                        @endif
                                     </div>
                                 @endforeach
                             </div>

@@ -33,8 +33,8 @@ class ActivityLogController extends Controller
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('title', 'ilike', "%{$search}%")
-                  ->orWhere('details', 'ilike', "%{$search}%")
-                  ->orWhere('ip_address', 'ilike', "%{$search}%");
+                    ->orWhere('details', 'ilike', "%{$search}%")
+                    ->orWhere('ip_address', 'ilike', "%{$search}%");
             });
         }
 

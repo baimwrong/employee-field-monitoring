@@ -6,21 +6,22 @@ use App\Models\ActivityLog;
 use App\Models\GeographicalArea;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class GeographicalAreaController extends Controller
 {
     public function index(Request $request)
     {
         $search = $request->input('search');
-        
+
         $areasQuery = GeographicalArea::with(['employees', 'locations'])
             ->withCount(['employees', 'locations', 'fieldVisits']);
 
         if ($search) {
             $areasQuery->where(function ($q) use ($search) {
                 $q->where('name', 'ilike', "%{$search}%")
-                  ->orWhere('code', 'ilike', "%{$search}%")
-                  ->orWhere('city', 'ilike', "%{$search}%");
+                    ->orWhere('code', 'ilike', "%{$search}%")
+                    ->orWhere('city', 'ilike', "%{$search}%");
             });
         }
 
@@ -60,7 +61,7 @@ class GeographicalAreaController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'code' => 'required|string|max:50|unique:geographical_areas,code,' . $area->id,
+            'code' => 'required|string|max:50|unique:geographical_areas,code,'.$area->id,
             'city' => 'nullable|string|max:100',
             'province_state' => 'nullable|string|max:100',
             'center_lat' => 'required|numeric|between:-90,90',
@@ -76,7 +77,7 @@ class GeographicalAreaController extends Controller
         ActivityLog::log(
             'area_updated',
             "Updated Geographical Area: {$area->name}",
-            "Updated boundaries and coordinates.",
+            'Updated boundaries and coordinates.',
             $area
         );
 
@@ -85,6 +86,11 @@ class GeographicalAreaController extends Controller
 
     public function destroy(GeographicalArea $area)
     {
+        // Data retention guard: prevent cascading erasure of associated locations and visits
+        if ($area->locations()->exists() || $area->fieldVisits()->exists()) {
+            return back()->with('warning', "Cannot delete geographical area '{$area->name}' because it contains active locations or historical field visits. Please reassign or deactivate the zone instead.");
+        }
+
         $name = $area->name;
         $area->delete();
 
@@ -107,20 +113,22 @@ class GeographicalAreaController extends Controller
 
         $user = User::findOrFail($validated['user_id']);
 
-        $area->employees()->syncWithoutDetaching([
-            $user->id => [
-                'role_in_area' => $validated['role_in_area'],
-                'assigned_date' => $validated['assigned_date'] ?? now(),
-                'expiry_date' => $validated['expiry_date'] ?? null,
-                'is_primary' => $request->boolean('is_primary', true),
-                'assignment_notes' => $validated['assignment_notes'] ?? null,
-            ]
-        ]);
+        DB::transaction(function () use ($area, $user, $validated, $request) {
+            $area->employees()->syncWithoutDetaching([
+                $user->id => [
+                    'role_in_area' => $validated['role_in_area'],
+                    'assigned_date' => $validated['assigned_date'] ?? now(),
+                    'expiry_date' => $validated['expiry_date'] ?? null,
+                    'is_primary' => $request->boolean('is_primary', true),
+                    'assignment_notes' => $validated['assignment_notes'] ?? null,
+                ],
+            ]);
+        });
 
         ActivityLog::log(
             'area_assignment',
             "Assigned {$user->name} to {$area->name}",
-            "Role: {$validated['role_in_area']}. Notes: " . ($validated['assignment_notes'] ?? 'None'),
+            "Role: {$validated['role_in_area']}. Notes: ".($validated['assignment_notes'] ?? 'None'),
             $area,
             $user
         );
@@ -136,7 +144,7 @@ class GeographicalAreaController extends Controller
         ActivityLog::log(
             'area_unassignment',
             "Removed {$user->name} from {$area->name}",
-            "Employee assignment terminated.",
+            'Employee assignment terminated.',
             $area,
             $user
         );

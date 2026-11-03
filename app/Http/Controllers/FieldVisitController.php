@@ -8,11 +8,18 @@ use App\Models\GeographicalArea;
 use App\Models\Location;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\View\View;
 
 class FieldVisitController extends Controller
 {
-    public function index(Request $request)
+    /**
+     * Display a listing of field visits with filters.
+     */
+    public function index(Request $request): View
     {
         $statusFilter = $request->input('status');
         $employeeFilter = $request->input('user_id');
@@ -21,12 +28,16 @@ class FieldVisitController extends Controller
 
         $query = FieldVisit::with(['user', 'location.geographicalArea', 'inspectionReports']);
 
-        if ($statusFilter) {
-            $query->where('status', $statusFilter);
+        $currentUser = auth()->user();
+        if ($currentUser && $currentUser->isFieldOfficer()) {
+            $query->where('user_id', $currentUser->id);
+            $employeeFilter = (string) $currentUser->id;
+        } elseif ($employeeFilter) {
+            $query->where('user_id', $employeeFilter);
         }
 
-        if ($employeeFilter) {
-            $query->where('user_id', $employeeFilter);
+        if ($statusFilter) {
+            $query->where('status', $statusFilter);
         }
 
         if ($areaFilter) {
@@ -39,14 +50,19 @@ class FieldVisitController extends Controller
 
         $visits = $query->latest('scheduled_at')->paginate(12)->withQueryString();
 
-        $employees = User::where('role', 'field_officer')->get();
+        $employees = ($currentUser && $currentUser->isFieldOfficer())
+            ? User::where('id', $currentUser->id)->get()
+            : User::where('role', 'field_officer')->get();
         $areas = GeographicalArea::where('is_active', true)->get();
         $locations = Location::where('is_active', true)->get();
 
         return view('visits.index', compact('visits', 'employees', 'areas', 'locations', 'statusFilter', 'employeeFilter', 'areaFilter', 'dateFilter'));
     }
 
-    public function store(Request $request)
+    /**
+     * Store and schedule a new field visit.
+     */
+    public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
             'user_id' => 'required|exists:users,id',
@@ -58,16 +74,22 @@ class FieldVisitController extends Controller
 
         $location = Location::findOrFail($validated['location_id']);
 
-        $visit = FieldVisit::create([
-            'visit_code' => 'VST-' . Carbon::now()->format('Ymd') . '-' . strtoupper(substr(uniqid(), -4)),
-            'user_id' => $validated['user_id'],
-            'location_id' => $validated['location_id'],
-            'geographical_area_id' => $location->geographical_area_id,
-            'scheduled_at' => $validated['scheduled_at'],
-            'purpose' => $validated['purpose'],
-            'status' => 'scheduled',
-            'visit_summary' => $validated['visit_summary'] ?? null,
-        ]);
+        $visit = DB::transaction(function () use ($validated, $location) {
+            do {
+                $code = 'VST-'.Carbon::now()->format('Ymd').'-'.strtoupper(Str::random(6));
+            } while (FieldVisit::where('visit_code', $code)->exists());
+
+            return FieldVisit::create([
+                'visit_code' => $code,
+                'user_id' => $validated['user_id'],
+                'location_id' => $validated['location_id'],
+                'geographical_area_id' => $location->geographical_area_id,
+                'scheduled_at' => $validated['scheduled_at'],
+                'purpose' => $validated['purpose'],
+                'status' => 'scheduled',
+                'visit_summary' => $validated['visit_summary'] ?? null,
+            ]);
+        });
 
         $officer = User::find($validated['user_id']);
 
@@ -82,107 +104,178 @@ class FieldVisitController extends Controller
         return redirect()->route('visits.index')->with('success', "Field Visit {$visit->visit_code} recorded & scheduled successfully.");
     }
 
-    // Record GPS Check-in for a field visit
-    public function checkIn(Request $request, FieldVisit $visit)
+    /**
+     * Record GPS Check-in with geofence verification and photo proof.
+     */
+    public function checkIn(Request $request, FieldVisit $visit): RedirectResponse
     {
         $validated = $request->validate([
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
-            'check_in_photo' => 'nullable|string',
-            'notes' => 'nullable|string',
+            'check_in_photo' => 'nullable|image|mimes:jpeg,png,jpg,webp|max:8192',
+            'notes' => 'nullable|string|max:1000',
         ]);
 
-        $location = $visit->location;
-        $distance = $this->calculateDistanceMeters(
-            $validated['latitude'],
-            $validated['longitude'],
-            $location->latitude,
-            $location->longitude
-        );
+        // Authorization check: Only assigned officer, supervisor, or admin can check in
+        $currentUser = auth()->user();
+        if ($currentUser && $currentUser->id !== $visit->user_id && ! $currentUser->hasAnyRole(['admin', 'supervisor'])) {
+            abort(403, 'Unauthorized. You are not assigned to this field visit.');
+        }
 
-        $isWithin = $distance <= $location->geofence_radius_meters;
+        $photoPath = null;
+        if ($request->hasFile('check_in_photo')) {
+            $photoPath = $request->file('check_in_photo')->store('visits', 'public');
+        }
 
-        $visit->update([
-            'status' => 'in_progress',
-            'check_in_at' => now(),
-            'check_in_lat' => $validated['latitude'],
-            'check_in_lng' => $validated['longitude'],
-            'check_in_distance_meters' => $distance,
-            'is_within_geofence' => $isWithin,
-            'visit_summary' => $validated['notes'] ? ($visit->visit_summary . "\nCheck-in note: " . $validated['notes']) : $visit->visit_summary,
-        ]);
+        $result = DB::transaction(function () use ($visit, $validated, $photoPath) {
+            $lockedVisit = FieldVisit::where('id', $visit->id)->lockForUpdate()->firstOrFail();
 
-        // Update employee's current live coordinates
-        $visit->user->update([
-            'current_latitude' => $validated['latitude'],
-            'current_longitude' => $validated['longitude'],
-            'last_active_at' => now(),
-        ]);
+            if ($lockedVisit->status !== 'scheduled') {
+                return [
+                    'success' => false,
+                    'message' => "Visit {$lockedVisit->visit_code} is already {$lockedVisit->status} and cannot be checked in.",
+                ];
+            }
 
+            $location = $lockedVisit->location;
+            $distance = $this->calculateDistanceMeters(
+                (float) $validated['latitude'],
+                (float) $validated['longitude'],
+                (float) $location->latitude,
+                (float) $location->longitude
+            );
+
+            $isWithin = $distance <= $location->geofence_radius_meters;
+
+            $lockedVisit->update([
+                'status' => 'in_progress',
+                'check_in_at' => now(),
+                'check_in_lat' => $validated['latitude'],
+                'check_in_lng' => $validated['longitude'],
+                'check_in_distance_meters' => $distance,
+                'is_within_geofence' => $isWithin,
+                'check_in_photo' => $photoPath ?? $lockedVisit->check_in_photo,
+                'visit_summary' => ! empty($validated['notes'])
+                    ? ($lockedVisit->visit_summary."\nCheck-in note: ".$validated['notes'])
+                    : $lockedVisit->visit_summary,
+            ]);
+
+            // Update assigned employee live coordinates
+            $lockedVisit->user->update([
+                'current_latitude' => $validated['latitude'],
+                'current_longitude' => $validated['longitude'],
+                'last_active_at' => now(),
+            ]);
+
+            return [
+                'success' => true,
+                'distance' => $distance,
+                'isWithin' => $isWithin,
+                'visit' => $lockedVisit,
+                'location' => $location,
+            ];
+        });
+
+        if (! $result['success']) {
+            return redirect()->route('visits.index')->with('warning', $result['message']);
+        }
+
+        $distance = $result['distance'];
+        $isWithin = $result['isWithin'];
         $geofenceMsg = $isWithin
             ? "Verified within {$distance}m (Geofence OK)"
-            : "Warning: {$distance}m from site (Exceeds {$location->geofence_radius_meters}m geofence)";
+            : "Notice: {$distance}m from site (Designated geofence: {$result['location']->geofence_radius_meters}m)";
 
         ActivityLog::log(
             'visit_checkin',
-            "Check-In recorded for {$visit->visit_code} at {$location->name}",
-            "Location: [{$validated['latitude']}, {$validated['longitude']}]. {$geofenceMsg}",
+            "Check-In recorded for {$visit->visit_code} at {$result['location']->name}",
+            "Coordinates: [{$validated['latitude']}, {$validated['longitude']}]. {$geofenceMsg}",
             $visit,
             $visit->user,
-            $validated['latitude'],
-            $validated['longitude']
+            (float) $validated['latitude'],
+            (float) $validated['longitude']
         );
 
         return redirect()->route('visits.index')->with(
             $isWithin ? 'success' : 'warning',
-            "GPS Check-in recorded! Distance: {$distance}m. " . ($isWithin ? 'Location verified within geofence.' : 'Notice: Outside designated geofence radius.')
+            "GPS Check-in recorded! Distance: {$distance}m. ".($isWithin ? 'Location verified within geofence.' : 'Notice: Outside designated geofence radius.')
         );
     }
 
-    // Record GPS Check-Out for a field visit
-    public function checkOut(Request $request, FieldVisit $visit)
+    /**
+     * Record GPS Check-Out and calculate accurate on-site duration.
+     */
+    public function checkOut(Request $request, FieldVisit $visit): RedirectResponse
     {
         $validated = $request->validate([
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
-            'visit_summary' => 'required|string',
+            'visit_summary' => 'required|string|max:3000',
             'client_representative_name' => 'nullable|string|max:255',
         ]);
 
-        $checkInTime = $visit->check_in_at ?? now();
-        $durationMinutes = max(1, (int) round($checkInTime->diffInMinutes(now())));
+        $currentUser = auth()->user();
+        if ($currentUser && $currentUser->id !== $visit->user_id && ! $currentUser->hasAnyRole(['admin', 'supervisor'])) {
+            abort(403, 'Unauthorized. You are not assigned to this field visit.');
+        }
 
-        $visit->update([
-            'status' => 'completed',
-            'check_out_at' => now(),
-            'check_out_lat' => $validated['latitude'],
-            'check_out_lng' => $validated['longitude'],
-            'duration_minutes' => $durationMinutes,
-            'visit_summary' => $validated['visit_summary'],
-            'client_representative_name' => $validated['client_representative_name'] ?? null,
-        ]);
+        $result = DB::transaction(function () use ($visit, $validated) {
+            $lockedVisit = FieldVisit::where('id', $visit->id)->lockForUpdate()->firstOrFail();
 
-        // Update employee location
-        $visit->user->update([
-            'current_latitude' => $validated['latitude'],
-            'current_longitude' => $validated['longitude'],
-            'last_active_at' => now(),
-        ]);
+            if ($lockedVisit->status !== 'in_progress') {
+                return [
+                    'success' => false,
+                    'message' => "Visit {$lockedVisit->visit_code} must be in-progress to check out (Current: {$lockedVisit->status}).",
+                ];
+            }
+
+            $checkInTime = $lockedVisit->check_in_at ?? now();
+            $durationMinutes = max(1, (int) round($checkInTime->diffInMinutes(now())));
+
+            $lockedVisit->update([
+                'status' => 'completed',
+                'check_out_at' => now(),
+                'check_out_lat' => $validated['latitude'],
+                'check_out_lng' => $validated['longitude'],
+                'duration_minutes' => $durationMinutes,
+                'visit_summary' => $validated['visit_summary'],
+                'client_representative_name' => $validated['client_representative_name'] ?? null,
+            ]);
+
+            $lockedVisit->user->update([
+                'current_latitude' => $validated['latitude'],
+                'current_longitude' => $validated['longitude'],
+                'last_active_at' => now(),
+            ]);
+
+            return [
+                'success' => true,
+                'duration' => $durationMinutes,
+                'visit' => $lockedVisit,
+            ];
+        });
+
+        if (! $result['success']) {
+            return redirect()->route('visits.index')->with('warning', $result['message']);
+        }
 
         ActivityLog::log(
             'visit_checkout',
             "Completed field visit {$visit->visit_code} at {$visit->location->name}",
-            "Total on-site duration: {$durationMinutes} mins. Sign-off: " . ($validated['client_representative_name'] ?? 'Self'),
+            "Total duration: {$result['duration']} mins. Sign-off: ".($validated['client_representative_name'] ?? 'Self'),
             $visit,
             $visit->user,
-            $validated['latitude'],
-            $validated['longitude']
+            (float) $validated['latitude'],
+            (float) $validated['longitude']
         );
 
-        return redirect()->route('visits.index')->with('success', "Visit {$visit->visit_code} completed successfully. Duration: {$durationMinutes} minutes.");
+        return redirect()->route('visits.index')->with('success', "Visit {$visit->visit_code} completed successfully. Duration: {$result['duration']} minutes.");
     }
 
-    public function destroy(FieldVisit $visit)
+    /**
+     * Delete/cancel a field visit.
+     */
+    public function destroy(FieldVisit $visit): RedirectResponse
     {
         $code = $visit->visit_code;
         $visit->delete();
@@ -192,10 +285,12 @@ class FieldVisitController extends Controller
         return redirect()->route('visits.index')->with('success', "Visit {$code} deleted.");
     }
 
-    // Helper: Haversine distance formula in meters
+    /**
+     * Calculate Haversine great-circle distance between two GPS points in meters.
+     */
     private function calculateDistanceMeters(float $lat1, float $lon1, float $lat2, float $lon2): int
     {
-        $earthRadius = 6371000; // in meters
+        $earthRadius = 6371000;
         $dLat = deg2rad($lat2 - $lat1);
         $dLon = deg2rad($lon2 - $lon1);
 
@@ -204,6 +299,7 @@ class FieldVisitController extends Controller
              sin($dLon / 2) * sin($dLon / 2);
 
         $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
+
         return (int) round($earthRadius * $c);
     }
 }

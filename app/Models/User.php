@@ -59,6 +59,26 @@ class User extends Authenticatable
         return $this->hasMany(InspectionReport::class);
     }
 
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin';
+    }
+
+    public function isSupervisor(): bool
+    {
+        return $this->role === 'supervisor';
+    }
+
+    public function isFieldOfficer(): bool
+    {
+        return $this->role === 'field_officer';
+    }
+
+    public function hasAnyRole(array $roles): bool
+    {
+        return in_array($this->role, $roles, true);
+    }
+
     public function activityLogs(): HasMany
     {
         return $this->hasMany(ActivityLog::class);

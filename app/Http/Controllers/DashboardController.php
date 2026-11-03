@@ -9,7 +9,6 @@ use App\Models\InspectionReport;
 use App\Models\Location;
 use App\Models\User;
 use Carbon\Carbon;
-use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
@@ -19,7 +18,7 @@ class DashboardController extends Controller
         $activeEmployees = User::where('role', 'field_officer')->where('status', 'active')->count();
         $totalAreas = GeographicalArea::where('is_active', true)->count();
         $totalLocations = Location::where('is_active', true)->count();
-        
+
         $todayVisitsCount = FieldVisit::whereDate('scheduled_at', Carbon::today())->count();
         $completedVisitsCount = FieldVisit::whereDate('scheduled_at', Carbon::today())->where('status', 'completed')->count();
         $inProgressVisitsCount = FieldVisit::where('status', 'in_progress')->count();
@@ -42,16 +41,8 @@ class DashboardController extends Controller
             ->take(8)
             ->get();
 
-        $areas = GeographicalArea::withCount(['employees', 'locations'])
+        $areas = GeographicalArea::select('id', 'name', 'color_code')
             ->where('is_active', true)
-            ->get();
-
-        $locations = Location::with('geographicalArea')
-            ->where('is_active', true)
-            ->get();
-
-        $fieldOfficers = User::where('role', 'field_officer')
-            ->with('geographicalAreas')
             ->get();
 
         return view('dashboard.index', compact(
@@ -67,9 +58,7 @@ class DashboardController extends Controller
             'recentVisits',
             'recentReports',
             'recentActivities',
-            'areas',
-            'locations',
-            'fieldOfficers'
+            'areas'
         ));
     }
 }

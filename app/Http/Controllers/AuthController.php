@@ -6,7 +6,6 @@ use App\Models\ActivityLog;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
@@ -16,11 +15,11 @@ class AuthController extends Controller
             return redirect()->route('dashboard');
         }
 
-        $demoUsers = [
+        $demoUsers = app()->isLocal() ? [
             'admin' => User::where('role', 'admin')->first(),
             'supervisor' => User::where('role', 'supervisor')->first(),
             'field_officer' => User::where('role', 'field_officer')->first(),
-        ];
+        ] : [];
 
         return view('auth.login', compact('demoUsers'));
     }
@@ -39,13 +38,13 @@ class AuthController extends Controller
 
             ActivityLog::log(
                 'user_login',
-                "User logged in: " . Auth::user()->name . " (" . strtoupper(Auth::user()->role) . ")",
-                "IP Address: " . $request->ip(),
+                'User logged in: '.Auth::user()->name.' ('.strtoupper(Auth::user()->role).')',
+                'IP Address: '.$request->ip(),
                 Auth::user(),
                 Auth::user()
             );
 
-            return redirect()->intended(route('dashboard'))->with('success', 'Welcome back, ' . Auth::user()->name . '!');
+            return redirect()->intended(route('dashboard'))->with('success', 'Welcome back, '.Auth::user()->name.'!');
         }
 
         return back()->withErrors([
@@ -53,9 +52,13 @@ class AuthController extends Controller
         ])->onlyInput('email');
     }
 
-    // One-click quick demo login for easy testing across roles
-    public function quickLogin(Request $request, $role)
+    // One-click quick demo login for easy testing across roles (local environment only)
+    public function quickLogin(Request $request, string $role)
     {
+        if (! app()->isLocal()) {
+            abort(404, 'Demo role switcher is disabled in production.');
+        }
+
         $user = User::where('role', $role)->first();
 
         if ($user) {
@@ -64,8 +67,8 @@ class AuthController extends Controller
 
             ActivityLog::log(
                 'demo_switch',
-                "Switched active session to: {$user->name} (" . strtoupper($user->role) . ")",
-                "One-click RBAC role switcher.",
+                "Switched active session to: {$user->name} (".strtoupper($user->role).')',
+                'One-click RBAC role switcher.',
                 $user,
                 $user
             );
@@ -79,7 +82,7 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         $userName = Auth::user()?->name ?? 'User';
-        
+
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();

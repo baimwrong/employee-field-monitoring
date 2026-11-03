@@ -14,7 +14,7 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
             $table->foreignId('location_id')->constrained('locations')->onDelete('cascade');
             $table->foreignId('geographical_area_id')->nullable()->constrained('geographical_areas')->nullOnDelete();
-            
+
             $table->dateTime('scheduled_at');
             $table->string('status')->default('scheduled'); // scheduled, in_progress, completed, cancelled, missed
             $table->string('purpose')->default('routine_inspection'); // routine_inspection, audit, maintenance, survey, emergency

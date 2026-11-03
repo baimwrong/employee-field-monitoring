@@ -10,12 +10,14 @@
             Manage employee profiles, assign administrative or field roles, and monitor active operational status.
         </p>
     </div>
+    @if(auth()->user()->isAdmin())
     <div class="d-flex gap-2">
         <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#createStaffModal">
             <i class="fa-solid fa-user-plus"></i>
             <span>Add New Staff Member</span>
         </button>
     </div>
+    @endif
 </div>
 
 <!-- Summary Cards -->
@@ -191,6 +193,7 @@
                         </td>
                         <td class="text-end">
                             <div class="d-flex justify-content-end gap-1">
+                                @if(auth()->user()->isAdmin())
                                 <button class="btn btn-sm btn-light border py-1 px-2 text-primary" data-bs-toggle="modal" data-bs-target="#editStaffModal{{ $user->id }}" title="Edit Staff & Role">
                                     <i class="fa-regular fa-pen-to-square"></i>
                                 </button>
@@ -202,6 +205,9 @@
                                             <i class="fa-solid fa-trash"></i>
                                         </button>
                                     </form>
+                                @endif
+                                @else
+                                <span class="text-muted small">View Only</span>
                                 @endif
                             </div>
                         </td>

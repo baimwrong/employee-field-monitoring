@@ -10,12 +10,14 @@
             Record and dispatch field visits, monitor real-time GPS check-ins, verify geofence accuracy, and log on-site durations.
         </p>
     </div>
+    @if(auth()->user()->hasAnyRole(['admin', 'supervisor']))
     <div class="d-flex gap-2">
         <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#scheduleVisitModal">
             <i class="fa-solid fa-plus"></i>
             <span>Record / Schedule Visit</span>
         </button>
     </div>
+    @endif
 </div>
 
 <!-- Filters Bar -->
@@ -152,15 +154,15 @@
                         </td>
                         <td class="text-end">
                             <div class="d-flex justify-content-end gap-1">
-                                <!-- Check-in button if scheduled -->
-                                @if($visit->status === 'scheduled')
+                                <!-- Check-in button if scheduled and authorized -->
+                                @if($visit->status === 'scheduled' && (auth()->user()->hasAnyRole(['admin', 'supervisor']) || auth()->id() === $visit->user_id))
                                     <button class="btn btn-sm btn-outline-success py-1 px-2" data-bs-toggle="modal" data-bs-target="#checkInModal{{ $visit->id }}" title="Record GPS Check-in">
                                         <i class="fa-solid fa-location-crosshairs me-1"></i>Check-In
                                     </button>
                                 @endif
 
-                                <!-- Check-out button if in_progress -->
-                                @if($visit->status === 'in_progress')
+                                <!-- Check-out button if in_progress and authorized -->
+                                @if($visit->status === 'in_progress' && (auth()->user()->hasAnyRole(['admin', 'supervisor']) || auth()->id() === $visit->user_id))
                                     <button class="btn btn-sm btn-outline-primary py-1 px-2" data-bs-toggle="modal" data-bs-target="#checkOutModal{{ $visit->id }}" title="Record GPS Check-out">
                                         <i class="fa-solid fa-flag-checkered me-1"></i>Check-Out
                                     </button>
@@ -171,7 +173,8 @@
                                     <i class="fa-solid fa-clipboard-check text-warning"></i>
                                 </a>
 
-                                <!-- Delete button -->
+                                <!-- Delete button (restricted to supervisor/admin) -->
+                                @if(auth()->user()->hasAnyRole(['admin', 'supervisor']))
                                 <form action="{{ route('visits.destroy', $visit) }}" method="POST" onsubmit="return confirm('Delete visit {{ $visit->visit_code }}?');" class="d-inline">
                                     @csrf
                                     @method('DELETE')
@@ -179,6 +182,7 @@
                                         <i class="fa-solid fa-trash"></i>
                                     </button>
                                 </form>
+                                @endif
                             </div>
                         </td>
                     </tr>
@@ -187,7 +191,7 @@
                     <div class="modal fade" id="checkInModal{{ $visit->id }}" tabindex="-1" aria-hidden="true">
                         <div class="modal-dialog modal-dialog-centered">
                             <div class="modal-content border-0 shadow">
-                                <form action="{{ route('visits.checkIn', $visit) }}" method="POST">
+                                <form action="{{ route('visits.checkIn', $visit) }}" method="POST" enctype="multipart/form-data">
                                     @csrf
                                     <div class="modal-header bg-light">
                                         <h5 class="modal-title fw-bold">
@@ -205,34 +209,43 @@
                                         </div>
 
                                         <p class="text-muted small">
-                                            Click the button below to capture the field officer's current GPS device coordinates. The system will automatically calculate the distance to the target site and verify the geofence perimeter.
+                                            Live hardware GPS must be captured from your device to verify geofence perimeter before check-in.
                                         </p>
 
-                                        <div class="row g-2 mb-3">
+                                        <div class="row g-2 mb-2">
                                             <div class="col-6">
-                                                <label class="form-label fw-semibold small">Check-In Latitude</label>
-                                                <input type="number" step="0.000001" name="latitude" id="checkInLat{{ $visit->id }}" class="form-control" value="{{ $visit->location->latitude }}" required>
+                                                <label class="form-label fw-semibold small">Live Latitude <span class="text-danger">*</span></label>
+                                                <input type="number" step="0.000001" name="latitude" id="checkInLat{{ $visit->id }}" class="form-control form-control-sm bg-light" placeholder="GPS required" readonly required>
                                             </div>
                                             <div class="col-6">
-                                                <label class="form-label fw-semibold small">Check-In Longitude</label>
-                                                <input type="number" step="0.000001" name="longitude" id="checkInLng{{ $visit->id }}" class="form-control" value="{{ $visit->location->longitude }}" required>
+                                                <label class="form-label fw-semibold small">Live Longitude <span class="text-danger">*</span></label>
+                                                <input type="number" step="0.000001" name="longitude" id="checkInLng{{ $visit->id }}" class="form-control form-control-sm bg-light" placeholder="GPS required" readonly required>
                                             </div>
                                         </div>
 
-                                        <div class="d-flex justify-content-end mb-3">
-                                            <button type="button" class="btn btn-sm btn-outline-primary" onclick="captureCheckInGPS({{ $visit->id }})">
-                                                <i class="fa-solid fa-crosshairs me-1"></i>Grab Live Device Coordinates
+                                        <div class="d-flex align-items-center justify-content-between mb-3">
+                                            <div id="checkInStatus{{ $visit->id }}" class="small text-muted">
+                                                <i class="fa-solid fa-satellite-dish me-1"></i>Awaiting GPS signal...
+                                            </div>
+                                            <button type="button" class="btn btn-sm btn-primary" id="checkInGpsBtn{{ $visit->id }}" onclick="captureCheckInGPS({{ $visit->id }})">
+                                                <i class="fa-solid fa-crosshairs me-1"></i>Grab Live Coordinates
                                             </button>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold small">On-Site Photo Proof (Optional)</label>
+                                            <input type="file" name="check_in_photo" class="form-control form-control-sm" accept="image/*" capture="environment">
+                                            <small class="text-muted" style="font-size: 0.75rem;">Photo at site entrance or lobby.</small>
                                         </div>
 
                                         <div class="mb-2">
                                             <label class="form-label fw-semibold small">Arrival Observation / Notes</label>
-                                            <textarea name="notes" class="form-control" rows="2" placeholder="e.g. Arrived on-site. Security clearance obtained."></textarea>
+                                            <textarea name="notes" class="form-control form-control-sm" rows="2" placeholder="e.g. Arrived on-site. Security clearance obtained."></textarea>
                                         </div>
                                     </div>
                                     <div class="modal-footer bg-light">
                                         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                                        <button type="submit" class="btn btn-success btn-sm">
+                                        <button type="submit" class="btn btn-success btn-sm" id="confirmCheckInBtn{{ $visit->id }}" disabled>
                                             <i class="fa-solid fa-check me-1"></i>Confirm GPS Check-In
                                         </button>
                                     </div>
@@ -259,15 +272,24 @@
                                             <div><b>Checked-In At:</b> {{ $visit->check_in_at ? $visit->check_in_at->format('H:i:s (M d)') : '-' }}</div>
                                         </div>
 
-                                        <div class="row g-2 mb-3">
+                                        <div class="row g-2 mb-2">
                                             <div class="col-6">
-                                                <label class="form-label fw-semibold small">Check-Out Latitude</label>
-                                                <input type="number" step="0.000001" name="latitude" class="form-control" value="{{ $visit->location->latitude }}" required>
+                                                <label class="form-label fw-semibold small">Departure Latitude <span class="text-danger">*</span></label>
+                                                <input type="number" step="0.000001" name="latitude" id="checkOutLat{{ $visit->id }}" class="form-control form-control-sm bg-light" placeholder="GPS required" readonly required>
                                             </div>
                                             <div class="col-6">
-                                                <label class="form-label fw-semibold small">Check-Out Longitude</label>
-                                                <input type="number" step="0.000001" name="longitude" class="form-control" value="{{ $visit->location->longitude }}" required>
+                                                <label class="form-label fw-semibold small">Departure Longitude <span class="text-danger">*</span></label>
+                                                <input type="number" step="0.000001" name="longitude" id="checkOutLng{{ $visit->id }}" class="form-control form-control-sm bg-light" placeholder="GPS required" readonly required>
                                             </div>
+                                        </div>
+
+                                        <div class="d-flex align-items-center justify-content-between mb-3">
+                                            <div id="checkOutStatus{{ $visit->id }}" class="small text-muted">
+                                                <i class="fa-solid fa-satellite-dish me-1"></i>Awaiting GPS signal...
+                                            </div>
+                                            <button type="button" class="btn btn-sm btn-primary" id="checkOutGpsBtn{{ $visit->id }}" onclick="captureCheckOutGPS({{ $visit->id }})">
+                                                <i class="fa-solid fa-crosshairs me-1"></i>Grab Live Coordinates
+                                            </button>
                                         </div>
 
                                         <div class="mb-3">
@@ -282,7 +304,7 @@
                                     </div>
                                     <div class="modal-footer bg-light">
                                         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                                        <button type="submit" class="btn btn-primary btn-sm">
+                                        <button type="submit" class="btn btn-primary btn-sm" id="confirmCheckOutBtn{{ $visit->id }}" disabled>
                                             <i class="fa-solid fa-flag-checkered me-1"></i>Complete Field Visit
                                         </button>
                                     </div>
@@ -379,19 +401,77 @@
 <script>
 function captureCheckInGPS(visitId) {
     if (!navigator.geolocation) {
-        alert('Geolocation not supported on this device/browser.');
+        alert('Geolocation is not supported on this device/browser.');
         return;
     }
+    const statusEl = document.getElementById('checkInStatus' + visitId);
+    const btn = document.getElementById('checkInGpsBtn' + visitId);
+    if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-primary me-1"></i>Acquiring satellite lock...';
+    if (btn) btn.disabled = true;
+
     navigator.geolocation.getCurrentPosition(
         pos => {
-            document.getElementById('checkInLat' + visitId).value = pos.coords.latitude.toFixed(6);
-            document.getElementById('checkInLng' + visitId).value = pos.coords.longitude.toFixed(6);
-            alert('Live GPS Coordinates captured: [' + pos.coords.latitude.toFixed(5) + ', ' + pos.coords.longitude.toFixed(5) + ']');
+            const lat = pos.coords.latitude.toFixed(7);
+            const lng = pos.coords.longitude.toFixed(7);
+            const acc = Math.round(pos.coords.accuracy);
+
+            document.getElementById('checkInLat' + visitId).value = lat;
+            document.getElementById('checkInLng' + visitId).value = lng;
+
+            if (statusEl) {
+                statusEl.innerHTML = `<span class="text-success"><i class="fa-solid fa-circle-check me-1"></i>GPS Locked (Accuracy: ±${acc}m)</span>`;
+            }
+
+            const confirmBtn = document.getElementById('confirmCheckInBtn' + visitId);
+            if (confirmBtn) confirmBtn.disabled = false;
+            if (btn) btn.disabled = false;
         },
         err => {
-            alert('Could not retrieve GPS coordinates: ' + err.message);
+            if (statusEl) {
+                statusEl.innerHTML = `<span class="text-danger"><i class="fa-solid fa-triangle-exclamation me-1"></i>${escapeHtml(err.message)}</span>`;
+            }
+            if (btn) btn.disabled = false;
+            alert('Could not retrieve GPS coordinates: ' + err.message + '. Please ensure location permission is granted.');
         },
-        { enableHighAccuracy: true }
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+}
+
+function captureCheckOutGPS(visitId) {
+    if (!navigator.geolocation) {
+        alert('Geolocation is not supported on this device/browser.');
+        return;
+    }
+    const statusEl = document.getElementById('checkOutStatus' + visitId);
+    const btn = document.getElementById('checkOutGpsBtn' + visitId);
+    if (statusEl) statusEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-primary me-1"></i>Acquiring satellite lock...';
+    if (btn) btn.disabled = true;
+
+    navigator.geolocation.getCurrentPosition(
+        pos => {
+            const lat = pos.coords.latitude.toFixed(7);
+            const lng = pos.coords.longitude.toFixed(7);
+            const acc = Math.round(pos.coords.accuracy);
+
+            document.getElementById('checkOutLat' + visitId).value = lat;
+            document.getElementById('checkOutLng' + visitId).value = lng;
+
+            if (statusEl) {
+                statusEl.innerHTML = `<span class="text-success"><i class="fa-solid fa-circle-check me-1"></i>GPS Locked (Accuracy: ±${acc}m)</span>`;
+            }
+
+            const confirmBtn = document.getElementById('confirmCheckOutBtn' + visitId);
+            if (confirmBtn) confirmBtn.disabled = false;
+            if (btn) btn.disabled = false;
+        },
+        err => {
+            if (statusEl) {
+                statusEl.innerHTML = `<span class="text-danger"><i class="fa-solid fa-triangle-exclamation me-1"></i>${escapeHtml(err.message)}</span>`;
+            }
+            if (btn) btn.disabled = false;
+            alert('Could not retrieve GPS coordinates: ' + err.message + '. Please ensure location permission is granted.');
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
 }
 </script>

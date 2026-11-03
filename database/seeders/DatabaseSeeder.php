@@ -6,7 +6,6 @@ use App\Models\ActivityLog;
 use App\Models\FieldVisit;
 use App\Models\GeographicalArea;
 use App\Models\InspectionItem;
-use App\Models\InspectionPhoto;
 use App\Models\InspectionReport;
 use App\Models\Location;
 use App\Models\User;

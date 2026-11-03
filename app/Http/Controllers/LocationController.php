@@ -15,9 +15,8 @@ class LocationController extends Controller
         $typeFilter = $request->input('type');
         $search = $request->input('search');
 
-        $query = Location::with(['geographicalArea', 'fieldVisits' => function ($q) {
-            $q->latest()->take(3);
-        }])->withCount('fieldVisits', 'inspectionReports');
+        $query = Location::with('geographicalArea')
+            ->withCount('fieldVisits', 'inspectionReports');
 
         if ($areaFilter) {
             $query->where('geographical_area_id', $areaFilter);
@@ -30,9 +29,9 @@ class LocationController extends Controller
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'ilike', "%{$search}%")
-                  ->orWhere('code', 'ilike', "%{$search}%")
-                  ->orWhere('client_name', 'ilike', "%{$search}%")
-                  ->orWhere('address', 'ilike', "%{$search}%");
+                    ->orWhere('code', 'ilike', "%{$search}%")
+                    ->orWhere('client_name', 'ilike', "%{$search}%")
+                    ->orWhere('address', 'ilike', "%{$search}%");
             });
         }
 
@@ -63,7 +62,7 @@ class LocationController extends Controller
         ]);
 
         if (empty($validated['code'])) {
-            $validated['code'] = 'LOC-' . strtoupper(uniqid());
+            $validated['code'] = 'LOC-'.strtoupper(uniqid());
         }
 
         $location = Location::create($validated);
@@ -86,7 +85,7 @@ class LocationController extends Controller
         $validated = $request->validate([
             'geographical_area_id' => 'required|exists:geographical_areas,id',
             'name' => 'required|string|max:255',
-            'code' => 'nullable|string|max:50|unique:locations,code,' . $location->id,
+            'code' => 'nullable|string|max:50|unique:locations,code,'.$location->id,
             'client_name' => 'nullable|string|max:255',
             'contact_person' => 'nullable|string|max:100',
             'contact_phone' => 'nullable|string|max:50',
@@ -104,7 +103,7 @@ class LocationController extends Controller
         ActivityLog::log(
             'location_updated',
             "Updated Assigned Location: {$location->name}",
-            "Coordinates or geofence updated.",
+            'Coordinates or geofence updated.',
             $location,
             null,
             $location->latitude,
@@ -116,6 +115,11 @@ class LocationController extends Controller
 
     public function destroy(Location $location)
     {
+        // Data retention guard: prevent cascading erasure of site audit records
+        if ($location->fieldVisits()->exists() || $location->inspectionReports()->exists()) {
+            return back()->with('warning', "Cannot delete location '{$location->name}' because it has linked historical visits or inspection dossiers. Please mark it as inactive instead to preserve audit records.");
+        }
+
         $name = $location->name;
         $location->delete();
 

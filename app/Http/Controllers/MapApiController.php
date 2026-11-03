@@ -13,6 +13,9 @@ class MapApiController extends Controller
 {
     public function getMapData(Request $request): JsonResponse
     {
+        $currentUser = auth()->user();
+        $isFieldOfficer = $currentUser && $currentUser->isFieldOfficer();
+
         $areaId = $request->input('area_id');
         $employeeId = $request->input('user_id');
 
@@ -24,7 +27,11 @@ class MapApiController extends Controller
             $areasQuery->where('id', $areaId);
         }
 
-        $areas = $areasQuery->get()->map(function ($area) {
+        $areas = $areasQuery->get()->map(function ($area) use ($isFieldOfficer, $currentUser) {
+            $assignedStaff = $isFieldOfficer
+                ? $area->employees->where('id', $currentUser->id)
+                : $area->employees;
+
             return [
                 'id' => $area->id,
                 'name' => $area->name,
@@ -35,14 +42,14 @@ class MapApiController extends Controller
                 'radius' => $area->radius_meters,
                 'color' => $area->color_code,
                 'description' => $area->description,
-                'employees' => $area->employees->map(function ($emp) {
+                'employees' => $assignedStaff->map(function ($emp) {
                     return [
                         'id' => $emp->id,
                         'name' => $emp->name,
                         'code' => $emp->employee_code,
                         'role_in_area' => $emp->pivot->role_in_area,
                     ];
-                }),
+                })->values(),
             ];
         });
 
@@ -72,13 +79,19 @@ class MapApiController extends Controller
             ];
         });
 
-        // Field Officers (Current Locations)
-        $employeesQuery = User::where('role', 'field_officer')
-            ->whereNotNull('current_latitude')
-            ->whereNotNull('current_longitude');
+        // Field Officers (Privacy-scoped: Field officers only see their own location)
+        if ($isFieldOfficer) {
+            $employeesQuery = User::where('id', $currentUser->id)
+                ->whereNotNull('current_latitude')
+                ->whereNotNull('current_longitude');
+        } else {
+            $employeesQuery = User::where('role', 'field_officer')
+                ->whereNotNull('current_latitude')
+                ->whereNotNull('current_longitude');
 
-        if ($employeeId) {
-            $employeesQuery->where('id', $employeeId);
+            if ($employeeId) {
+                $employeesQuery->where('id', $employeeId);
+            }
         }
 
         $employees = $employeesQuery->get()->map(function ($emp) {
@@ -93,10 +106,15 @@ class MapApiController extends Controller
             ];
         });
 
-        // Today's Visits
-        $todayVisits = FieldVisit::with(['user:id,name', 'location:id,name,latitude,longitude'])
-            ->whereDate('scheduled_at', today())
-            ->get()
+        // Today's Visits (Privacy-scoped: Field officers only see their assigned visits)
+        $todayVisitsQuery = FieldVisit::with(['user:id,name', 'location:id,name,latitude,longitude'])
+            ->whereDate('scheduled_at', today());
+
+        if ($isFieldOfficer) {
+            $todayVisitsQuery->where('user_id', $currentUser->id);
+        }
+
+        $todayVisits = $todayVisitsQuery->get()
             ->map(function ($v) {
                 return [
                     'id' => $v->id,

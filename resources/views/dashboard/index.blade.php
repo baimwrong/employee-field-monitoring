@@ -146,14 +146,14 @@
                 <input class="form-check-input" type="checkbox" id="toggleLocationsCheck" checked>
                 <label class="form-check-label fw-semibold" for="toggleLocationsCheck">
                     <i class="fa-solid fa-location-dot text-danger me-1"></i>
-                    Assigned Locations ({{ $locations->count() }})
+                    Assigned Locations ({{ $totalLocations }})
                 </label>
             </div>
             <div class="form-check form-check-inline mb-0">
                 <input class="form-check-input" type="checkbox" id="toggleOfficersCheck" checked>
                 <label class="form-check-label fw-semibold" for="toggleOfficersCheck">
                     <i class="fa-solid fa-person-walking text-success me-1"></i>
-                    Active Field Officers ({{ $fieldOfficers->count() }})
+                    Active Field Officers ({{ $activeEmployees }})
                 </label>
             </div>
         </div>
@@ -497,17 +497,17 @@ document.addEventListener('DOMContentLoaded', function () {
 
                     bounds.extend(circle.getBounds());
 
-                    let employeeListHtml = area.employees.map(e => `<li><b>${e.name}</b> (${e.role_in_area})</li>`).join('');
+                    let employeeListHtml = area.employees.map(e => `<li><b>${escapeHtml(e.name)}</b> (${escapeHtml(e.role_in_area)})</li>`).join('');
                     if (!employeeListHtml) employeeListHtml = '<li><span class="text-muted">No employees assigned</span></li>';
 
                     circle.bindPopup(`
                         <div style="min-width: 220px;">
                             <div class="d-flex align-items-center gap-2 mb-2">
-                                <span class="d-inline-block rounded-circle" style="width: 12px; height: 12px; background-color: ${area.color};"></span>
-                                <h6 class="fw-bold mb-0 text-dark">${area.name}</h6>
+                                <span class="d-inline-block rounded-circle" style="width: 12px; height: 12px; background-color: ${escapeHtml(area.color)};"></span>
+                                <h6 class="fw-bold mb-0 text-dark">${escapeHtml(area.name)}</h6>
                             </div>
-                            <small class="badge bg-light text-dark border mb-2">${area.code} &bull; ${area.city}</small>
-                            <p class="text-muted small mb-2">${area.description || 'Geofenced operational territory.'}</p>
+                            <small class="badge bg-light text-dark border mb-2">${escapeHtml(area.code)} &bull; ${escapeHtml(area.city)}</small>
+                            <p class="text-muted small mb-2">${escapeHtml(area.description || 'Geofenced operational territory.')}</p>
                             <div class="small fw-semibold text-dark mb-1"><i class="fa-solid fa-users me-1 text-primary"></i>Assigned Field Staff:</div>
                             <ul class="small ps-3 mb-0">${employeeListHtml}</ul>
                         </div>
@@ -538,15 +538,15 @@ document.addEventListener('DOMContentLoaded', function () {
                     marker.bindPopup(`
                         <div style="min-width: 230px;">
                             <div class="d-flex align-items-center justify-content-between mb-1">
-                                <span class="badge bg-primary-subtle text-primary">${loc.location_type}</span>
-                                <small class="text-muted">${loc.code || ''}</small>
+                                <span class="badge bg-primary-subtle text-primary">${escapeHtml(loc.location_type)}</span>
+                                <small class="text-muted">${escapeHtml(loc.code || '')}</small>
                             </div>
-                            <h6 class="fw-bold text-dark mb-1">${loc.name}</h6>
-                            <p class="text-muted small mb-1"><i class="fa-solid fa-building me-1"></i>${loc.client_name || 'Direct Client'}</p>
-                            <p class="text-muted small mb-2"><i class="fa-solid fa-location-dot me-1"></i>${loc.address || 'Address registered'}</p>
+                            <h6 class="fw-bold text-dark mb-1">${escapeHtml(loc.name)}</h6>
+                            <p class="text-muted small mb-1"><i class="fa-solid fa-building me-1"></i>${escapeHtml(loc.client_name || 'Direct Client')}</p>
+                            <p class="text-muted small mb-2"><i class="fa-solid fa-location-dot me-1"></i>${escapeHtml(loc.address || 'Address registered')}</p>
                             <div class="p-2 bg-light rounded small border">
-                                <div><b>Contact:</b> ${loc.contact_person || 'N/A'} (${loc.contact_phone || '-'})</div>
-                                <div><b>Geofence Radius:</b> ${loc.geofence_radius} meters</div>
+                                <div><b>Contact:</b> ${escapeHtml(loc.contact_person || 'N/A')} (${escapeHtml(loc.contact_phone || '-')})</div>
+                                <div><b>Geofence Radius:</b> ${escapeHtml(loc.geofence_radius)} meters</div>
                             </div>
                         </div>
                     `);
@@ -567,15 +567,15 @@ document.addEventListener('DOMContentLoaded', function () {
                             <div class="d-flex align-items-center gap-2 mb-2">
                                 <i class="fa-solid fa-person-walking text-success fs-5"></i>
                                 <div>
-                                    <h6 class="fw-bold mb-0 text-dark">${emp.name}</h6>
-                                    <small class="text-muted">${emp.code || 'Field Officer'}</small>
+                                    <h6 class="fw-bold mb-0 text-dark">${escapeHtml(emp.name)}</h6>
+                                    <small class="text-muted">${escapeHtml(emp.code || 'Field Officer')}</small>
                                 </div>
                             </div>
                             <div class="small p-2 bg-light rounded border mb-2">
-                                <div><i class="fa-solid fa-phone me-1 text-muted"></i>${emp.phone || '-'}</div>
-                                <div><i class="fa-regular fa-clock me-1 text-muted"></i>Active: ${emp.last_active}</div>
+                                <div><i class="fa-solid fa-phone me-1 text-muted"></i>${escapeHtml(emp.phone || '-')}</div>
+                                <div><i class="fa-regular fa-clock me-1 text-muted"></i>Active: ${escapeHtml(emp.last_active)}</div>
                             </div>
-                            <a href="/visits?user_id=${emp.id}" class="btn btn-sm btn-primary w-100 py-1" style="font-size: 0.75rem;">
+                            <a href="/visits?user_id=${encodeURIComponent(emp.id)}" class="btn btn-sm btn-primary w-100 py-1" style="font-size: 0.75rem;">
                                 View Officer Visits
                             </a>
                         </div>

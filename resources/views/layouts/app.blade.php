@@ -238,10 +238,12 @@
                     <i class="fa-solid fa-chart-pie"></i>
                     <span>Overview Dashboard</span>
                 </a>
+                @if(auth()->user()?->hasAnyRole(['admin', 'supervisor']))
                 <a href="{{ route('users.index') }}" class="sidebar-link {{ request()->routeIs('users.*') ? 'active' : '' }}">
                     <i class="fa-solid fa-users-gear"></i>
                     <span>Staff & Roles</span>
                 </a>
+                @endif
                 <a href="{{ route('areas.index') }}" class="sidebar-link {{ request()->routeIs('areas.*') ? 'active' : '' }}">
                     <i class="fa-solid fa-map-location-dot"></i>
                     <span>Geographical Areas</span>
@@ -261,11 +263,13 @@
                     <span>Inspection Reports</span>
                 </a>
 
+                @if(auth()->user()?->hasAnyRole(['admin', 'supervisor']))
                 <div class="nav-section-title">Audit & History</div>
                 <a href="{{ route('activities.index') }}" class="sidebar-link {{ request()->routeIs('activities.*') ? 'active' : '' }}">
                     <i class="fa-solid fa-clock-rotate-left"></i>
                     <span>Activity History</span>
                 </a>
+                @endif
             </div>
 
             <!-- Bottom System Info -->
@@ -306,17 +310,18 @@
 
                     <!-- User Profile Dropdown -->
                     @php
-                        $currentUser = auth()->user() ?? \App\Models\User::where('role', 'admin')->first();
+                        $currentUser = auth()->user();
                     @endphp
+                    @if($currentUser)
                     <div class="dropdown">
                         <button class="btn btn-light border dropdown-toggle d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown">
                             <div class="bg-primary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold" style="width: 32px; height: 32px; font-size: 0.85rem;">
-                                {{ strtoupper(substr($currentUser->name ?? 'Admin', 0, 2)) }}
+                                {{ strtoupper(substr($currentUser->name, 0, 2)) }}
                             </div>
                             <div class="text-start d-none d-sm-block">
-                                <div class="fw-semibold lh-1" style="font-size: 0.85rem;">{{ $currentUser->name ?? 'Alexander Vance' }}</div>
+                                <div class="fw-semibold lh-1" style="font-size: 0.85rem;">{{ $currentUser->name }}</div>
                                 <small class="badge bg-primary-subtle text-primary border border-primary-subtle py-0 px-1 mt-1" style="font-size: 0.65rem;">
-                                    {{ ucfirst(str_replace('_', ' ', $currentUser->role ?? 'admin')) }}
+                                    {{ ucfirst(str_replace('_', ' ', $currentUser->role)) }}
                                 </small>
                             </div>
                         </button>
@@ -326,33 +331,34 @@
                                 <div class="fw-bold text-dark" style="font-size: 0.85rem;">{{ $currentUser->name }}</div>
                                 <small class="text-muted">{{ $currentUser->email }}</small>
                             </li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><h6 class="dropdown-header text-uppercase" style="font-size: 0.7rem;">Quick Role Switcher (Demo)</h6></li>
-                            <li>
-                                <a class="dropdown-item d-flex align-items-center justify-content-between" href="{{ route('login.quick', 'admin') }}">
-                                    <span><i class="fa-solid fa-crown text-primary me-2"></i>Admin</span>
-                                    <small class="text-muted">Alexander</small>
-                                </a>
-                            </li>
-                            <li>
-                                <a class="dropdown-item d-flex align-items-center justify-content-between" href="{{ route('login.quick', 'supervisor') }}">
-                                    <span><i class="fa-solid fa-user-shield text-warning me-2"></i>Supervisor</span>
-                                    <small class="text-muted">Sarah</small>
-                                </a>
-                            </li>
-                            <li>
-                                <a class="dropdown-item d-flex align-items-center justify-content-between" href="{{ route('login.quick', 'field_officer') }}">
-                                    <span><i class="fa-solid fa-person-walking text-success me-2"></i>Field Officer</span>
-                                    <small class="text-muted">Ahmad</small>
-                                </a>
-                            </li>
+                            @if(app()->isLocal())
+                                <li><hr class="dropdown-divider"></li>
+                                <li><h6 class="dropdown-header text-uppercase" style="font-size: 0.7rem;">Quick Role Switcher (Local Demo)</h6></li>
+                                <li>
+                                    <a class="dropdown-item d-flex align-items-center justify-content-between" href="{{ route('login.quick', 'admin') }}">
+                                        <span><i class="fa-solid fa-crown text-primary me-2"></i>Admin</span>
+                                        <small class="text-muted">Alexander</small>
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item d-flex align-items-center justify-content-between" href="{{ route('login.quick', 'supervisor') }}">
+                                        <span><i class="fa-solid fa-user-shield text-warning me-2"></i>Supervisor</span>
+                                        <small class="text-muted">Sarah</small>
+                                    </a>
+                                </li>
+                                <li>
+                                    <a class="dropdown-item d-flex align-items-center justify-content-between" href="{{ route('login.quick', 'field_officer') }}">
+                                        <span><i class="fa-solid fa-person-walking text-success me-2"></i>Field Officer</span>
+                                        <small class="text-muted">Ahmad</small>
+                                    </a>
+                                </li>
+                            @endif
+                            @if(auth()->user()?->hasAnyRole(['admin', 'supervisor']))
                             <li><hr class="dropdown-divider"></li>
                             <li>
                                 <a class="dropdown-item" href="{{ route('users.index') }}"><i class="fa-solid fa-users-gear me-2 text-muted"></i>Staff Directory & Roles</a>
                             </li>
-                            <li>
-                                <a class="dropdown-item" href="{{ route('login') }}"><i class="fa-solid fa-arrow-right-to-bracket me-2 text-muted"></i>Sign In with Account</a>
-                            </li>
+                            @endif
                             <li><hr class="dropdown-divider"></li>
                             <li>
                                 <form action="{{ route('logout') }}" method="POST" class="px-2">
@@ -364,6 +370,11 @@
                             </li>
                         </ul>
                     </div>
+                    @else
+                        <a href="{{ route('login') }}" class="btn btn-sm btn-primary">
+                            <i class="fa-solid fa-arrow-right-to-bracket me-1"></i>Sign In
+                        </a>
+                    @endif
                 </div>
             </header>
 
@@ -479,6 +490,17 @@
                 backdrop.classList.remove('show');
             });
         }
+
+        // Global HTML sanitizer for Leaflet popups and dynamic UI strings
+        window.escapeHtml = function(str) {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        };
 
         // Live Clock
         function updateClock() {

@@ -114,6 +114,28 @@
                 </table>
             </div>
         </div>
+
+        @if($inspection->photos->count() > 0)
+            <div class="card-custom p-4 mb-4">
+                <h6 class="fw-bold text-dark mb-3">
+                    <i class="fa-solid fa-camera text-primary me-2"></i>Photographic Audit Evidence ({{ $inspection->photos->count() }})
+                </h6>
+                <div class="row g-3">
+                    @foreach($inspection->photos as $photo)
+                        <div class="col-6 col-md-4">
+                            <div class="border rounded overflow-hidden shadow-sm">
+                                <a href="{{ asset('storage/' . $photo->photo_path) }}" target="_blank" title="Click to view full image">
+                                    <img src="{{ asset('storage/' . $photo->photo_path) }}" alt="{{ $photo->caption ?? 'Evidence' }}" class="img-fluid" style="height: 140px; width: 100%; object-fit: cover;">
+                                </a>
+                                <div class="p-2 bg-light small text-truncate text-muted" style="font-size: 0.75rem;">
+                                    <i class="fa-solid fa-tag me-1 text-primary"></i>{{ $photo->caption ?? 'Evidence photo' }}
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
+        @endif
     </div>
 
     <!-- Right Column: Audit Score & Supervisor Review -->
@@ -174,27 +196,33 @@
                 </div>
             @endif
 
-            <!-- Review / Update Action Form -->
-            <form action="{{ route('inspections.review', $inspection) }}" method="POST">
-                @csrf
-                <div class="mb-3">
-                    <label class="form-label fw-semibold small">Set Approval Status</label>
-                    <select name="status" class="form-select form-select-sm" required>
-                        <option value="approved" {{ $inspection->status === 'approved' ? 'selected' : '' }}>Approve Report</option>
-                        <option value="under_review" {{ $inspection->status === 'under_review' ? 'selected' : '' }}>Mark Under Review</option>
-                        <option value="rejected" {{ $inspection->status === 'rejected' ? 'selected' : '' }}>Reject / Request Re-audit</option>
-                    </select>
-                </div>
+            @if(auth()->user()?->hasAnyRole(['admin', 'supervisor']))
+                <!-- Review / Update Action Form -->
+                <form action="{{ route('inspections.review', $inspection) }}" method="POST">
+                    @csrf
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Set Approval Status</label>
+                        <select name="status" class="form-select form-select-sm" required>
+                            <option value="approved" {{ $inspection->status === 'approved' ? 'selected' : '' }}>Approve Report</option>
+                            <option value="under_review" {{ $inspection->status === 'under_review' ? 'selected' : '' }}>Mark Under Review</option>
+                            <option value="rejected" {{ $inspection->status === 'rejected' ? 'selected' : '' }}>Reject / Request Re-audit</option>
+                        </select>
+                    </div>
 
-                <div class="mb-3">
-                    <label class="form-label fw-semibold small">Supervisor Review Remarks</label>
-                    <textarea name="reviewer_remarks" class="form-control form-control-sm" rows="3" placeholder="Enter quality remarks, follow-up instructions..." required>{{ $inspection->reviewer_remarks }}</textarea>
-                </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold small">Supervisor Review Remarks</label>
+                        <textarea name="reviewer_remarks" class="form-control form-control-sm" rows="3" placeholder="Enter quality remarks, follow-up instructions..." required>{{ $inspection->reviewer_remarks }}</textarea>
+                    </div>
 
-                <button type="submit" class="btn btn-primary btn-sm w-100">
-                    <i class="fa-solid fa-stamp me-1"></i>Submit Review Decision
-                </button>
-            </form>
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <i class="fa-solid fa-stamp me-1"></i>Submit Review Decision
+                    </button>
+                </form>
+            @else
+                <div class="alert alert-light border small text-muted mb-0">
+                    <i class="fa-solid fa-shield-halved text-secondary me-1"></i>Official approval & review is restricted to Supervisors and Administrators.
+                </div>
+            @endif
         </div>
     </div>
 </div>

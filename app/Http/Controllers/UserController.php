@@ -17,9 +17,8 @@ class UserController extends Controller
         $statusFilter = $request->input('status');
         $search = $request->input('search');
 
-        $query = User::with(['geographicalAreas', 'fieldVisits' => function ($q) {
-            $q->latest()->take(3);
-        }])->withCount(['geographicalAreas', 'fieldVisits', 'inspectionReports']);
+        $query = User::with('geographicalAreas')
+            ->withCount(['geographicalAreas', 'fieldVisits', 'inspectionReports']);
 
         if ($roleFilter) {
             $query->where('role', $roleFilter);
@@ -32,9 +31,9 @@ class UserController extends Controller
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'ilike', "%{$search}%")
-                  ->orWhere('email', 'ilike', "%{$search}%")
-                  ->orWhere('employee_code', 'ilike', "%{$search}%")
-                  ->orWhere('phone', 'ilike', "%{$search}%");
+                    ->orWhere('email', 'ilike', "%{$search}%")
+                    ->orWhere('employee_code', 'ilike', "%{$search}%")
+                    ->orWhere('phone', 'ilike', "%{$search}%");
             });
         }
 
@@ -89,11 +88,11 @@ class UserController extends Controller
         ActivityLog::log(
             'user_created',
             "Created Staff Member: {$user->name} ({$user->employee_code})",
-            "Assigned Role: " . strtoupper($user->role) . ", Status: " . ucfirst($user->status),
+            'Assigned Role: '.strtoupper($user->role).', Status: '.ucfirst($user->status),
             $user
         );
 
-        return redirect()->route('users.index')->with('success', "Staff member '{$user->name}' created successfully with role: " . strtoupper($user->role));
+        return redirect()->route('users.index')->with('success', "Staff member '{$user->name}' created successfully with role: ".strtoupper($user->role));
     }
 
     public function update(Request $request, User $user)
@@ -108,7 +107,7 @@ class UserController extends Controller
             'password' => 'nullable|string|min:6',
         ]);
 
-        if (!empty($validated['password'])) {
+        if (! empty($validated['password'])) {
             $validated['password'] = Hash::make($validated['password']);
         } else {
             unset($validated['password']);
@@ -117,7 +116,7 @@ class UserController extends Controller
         $oldRole = $user->role;
         $user->update($validated);
 
-        $roleChangedMsg = ($oldRole !== $user->role) ? " (Role changed from {$oldRole} to {$user->role})" : "";
+        $roleChangedMsg = ($oldRole !== $user->role) ? " (Role changed from {$oldRole} to {$user->role})" : '';
 
         ActivityLog::log(
             'user_updated',
@@ -133,6 +132,15 @@ class UserController extends Controller
     {
         if (auth()->id() === $user->id) {
             return back()->with('warning', 'You cannot delete your own active account.');
+        }
+
+        if ($user->role === 'admin' && User::where('role', 'admin')->count() <= 1) {
+            return back()->with('warning', 'Cannot delete the system\'s only remaining administrator account.');
+        }
+
+        // Data retention guard: prevent cascading erasure of field history
+        if ($user->fieldVisits()->exists() || $user->inspectionReports()->exists()) {
+            return back()->with('warning', "Cannot delete staff member '{$user->name}' because they have associated field visits or inspection reports. Please update their operational status to 'Inactive' instead to preserve audit history.");
         }
 
         $name = $user->name;

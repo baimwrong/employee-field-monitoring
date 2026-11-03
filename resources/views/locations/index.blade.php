@@ -14,10 +14,12 @@
         <button type="button" class="btn btn-outline-secondary btn-sm" id="toggleViewBtn">
             <i class="fa-solid fa-map me-1"></i><span id="viewModeText">Show Full Map</span>
         </button>
+        @if(auth()->user()->hasAnyRole(['admin', 'supervisor']))
         <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#createLocationModal">
             <i class="fa-solid fa-plus"></i>
             <span>Add Assigned Location</span>
         </button>
+        @endif
     </div>
 </div>
 
@@ -99,16 +101,19 @@
                                 <i class="fa-solid fa-ellipsis-vertical text-muted"></i>
                             </button>
                             <ul class="dropdown-menu dropdown-menu-end shadow-sm border-0">
+                                @if(auth()->user()->hasAnyRole(['admin', 'supervisor']))
                                 <li>
                                     <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editLocModal{{ $loc->id }}">
                                         <i class="fa-regular fa-pen-to-square me-2 text-primary"></i>Edit Location
                                     </button>
                                 </li>
+                                @endif
                                 <li>
                                     <a class="dropdown-item" href="{{ route('visits.index', ['location_id' => $loc->id]) }}">
                                         <i class="fa-solid fa-route me-2 text-success"></i>View Visit History
                                     </a>
                                 </li>
+                                @if(auth()->user()->isAdmin())
                                 <li><hr class="dropdown-divider"></li>
                                 <li>
                                     <form action="{{ route('locations.destroy', $loc) }}" method="POST" onsubmit="return confirm('Delete location {{ $loc->name }}?');">
@@ -119,6 +124,7 @@
                                         </button>
                                     </form>
                                 </li>
+                                @endif
                             </ul>
                         </div>
                     </div>
@@ -420,13 +426,13 @@ document.addEventListener('DOMContentLoaded', function () {
         const marker = L.marker(coords).addTo(map);
         marker.bindPopup(`
             <div style="min-width: 220px;">
-                <span class="badge bg-primary-subtle text-primary mb-1">${loc.location_type}</span>
-                <h6 class="fw-bold text-dark mb-1">${loc.name}</h6>
-                <small class="text-muted d-block mb-1">${loc.client_name || ''}</small>
-                <div class="small text-muted mb-2">${loc.address || ''}</div>
+                <span class="badge bg-primary-subtle text-primary mb-1">${escapeHtml(loc.location_type)}</span>
+                <h6 class="fw-bold text-dark mb-1">${escapeHtml(loc.name)}</h6>
+                <small class="text-muted d-block mb-1">${escapeHtml(loc.client_name || '')}</small>
+                <div class="small text-muted mb-2">${escapeHtml(loc.address || '')}</div>
                 <div class="p-2 bg-light rounded small border">
-                    <div><b>Geofence:</b> ${loc.geofence_radius_meters}m</div>
-                    <div><b>Area:</b> ${loc.geographical_area ? loc.geographical_area.name : 'N/A'}</div>
+                    <div><b>Geofence:</b> ${escapeHtml(loc.geofence_radius_meters)}m</div>
+                    <div><b>Area:</b> ${loc.geographical_area ? escapeHtml(loc.geographical_area.name) : 'N/A'}</div>
                 </div>
             </div>
         `);
