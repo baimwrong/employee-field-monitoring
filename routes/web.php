@@ -23,7 +23,19 @@ Route::get('/login/quick/{role}', [AuthController::class, 'quickLogin'])->name('
 Route::middleware('auth')->group(function () {
     // Dashboard & Live Monitoring
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
-    Route::get('/api/map-data', [MapApiController::class, 'getMapData'])->name('api.mapData');
+    Route::get('/api/map-data', [MapApiController::class, 'getMapData'])
+        ->middleware('throttle:60,1')
+        ->name('api.mapData');
+    Route::post('/api/officer/ping-location', [MapApiController::class, 'pingLocation'])
+        ->middleware('throttle:60,1')
+        ->name('api.pingLocation');
+    Route::get('/api/keep-alive', fn () => response()->json([
+        'status' => 'alive',
+        'timestamp' => now()->toIso8601String(),
+    ]))->name('api.keepAlive');
+
+    // Self-Service Authenticated Profile Actions
+    Route::put('/profile/password', [UserController::class, 'updatePassword'])->name('profile.password');
 
     // Staff & Role Management (Restricted to Administrators & Supervisors)
     Route::prefix('users')->name('users.')->middleware('role:admin,supervisor')->group(function () {
@@ -72,6 +84,7 @@ Route::middleware('auth')->group(function () {
     // Field Visits & GPS Geofencing
     Route::prefix('visits')->name('visits.')->group(function () {
         Route::get('/', [FieldVisitController::class, 'index'])->name('index');
+        Route::get('/export/csv', [FieldVisitController::class, 'exportCsv'])->name('exportCsv');
 
         // Dispatch visits (Supervisor / Admin)
         Route::post('/', [FieldVisitController::class, 'store'])
@@ -82,6 +95,11 @@ Route::middleware('auth')->group(function () {
         Route::post('/{visit}/check-in', [FieldVisitController::class, 'checkIn'])->name('checkIn');
         Route::post('/{visit}/check-out', [FieldVisitController::class, 'checkOut'])->name('checkOut');
 
+        // Supervisor force check-out override
+        Route::post('/{visit}/force-checkout', [FieldVisitController::class, 'forceCheckOut'])
+            ->middleware('role:admin,supervisor')
+            ->name('forceCheckOut');
+
         Route::delete('/{visit}', [FieldVisitController::class, 'destroy'])
             ->middleware('role:admin,supervisor')
             ->name('destroy');
@@ -90,6 +108,7 @@ Route::middleware('auth')->group(function () {
     // Inspection Reports
     Route::prefix('inspections')->name('inspections.')->group(function () {
         Route::get('/', [InspectionReportController::class, 'index'])->name('index');
+        Route::get('/export/csv', [InspectionReportController::class, 'exportCsv'])->name('exportCsv');
         Route::get('/create', [InspectionReportController::class, 'create'])->name('create');
         Route::post('/', [InspectionReportController::class, 'store'])->name('store');
         Route::get('/{inspection}', [InspectionReportController::class, 'show'])->name('show');

@@ -137,4 +137,29 @@ class MapApiController extends Controller
             ],
         ]);
     }
+
+    /**
+     * Real-time GPS heartbeat beacon from mobile field officer device.
+     */
+    public function pingLocation(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'latitude' => 'required|numeric|between:-90,90',
+            'longitude' => 'required|numeric|between:-180,180',
+        ]);
+
+        $user = auth()->user();
+        if ($user) {
+            $user->update([
+                'current_latitude' => $validated['latitude'],
+                'current_longitude' => $validated['longitude'],
+                'last_active_at' => now(),
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'timestamp' => now()->toIso8601String(),
+        ]);
+    }
 }

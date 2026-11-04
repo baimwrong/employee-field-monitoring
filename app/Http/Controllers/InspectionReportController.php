@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class InspectionReportController extends Controller
 {
@@ -286,5 +287,79 @@ class InspectionReportController extends Controller
         );
 
         return redirect()->route('inspections.show', $inspection)->with('success', 'Report status updated to '.ucfirst(str_replace('_', ' ', $validated['status'])).'.');
+    }
+
+    /**
+     * Export inspection dossiers to CSV format.
+     */
+    public function exportCsv(Request $request): StreamedResponse
+    {
+        $statusFilter = $request->input('status');
+        $gradeFilter = $request->input('grade');
+        $categoryFilter = $request->input('category');
+        $search = $request->input('search');
+
+        $query = InspectionReport::with(['inspector', 'location', 'reviewer']);
+
+        if ($statusFilter) {
+            $query->where('status', $statusFilter);
+        }
+        if ($gradeFilter) {
+            $query->where('result_grade', $gradeFilter);
+        }
+        if ($categoryFilter) {
+            $query->where('category', $categoryFilter);
+        }
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('report_number', 'ilike', "%{$search}%")
+                    ->orWhere('title', 'ilike', "%{$search}%");
+            });
+        }
+
+        $reports = $query->latest('inspection_date')->get();
+        $filename = 'inspection_reports_'.date('Ymd_His').'.csv';
+
+        return response()->streamDownload(function () use ($reports) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'Report Number',
+                'Title',
+                'Location',
+                'Inspector',
+                'Employee Code',
+                'Category',
+                'Inspection Date',
+                'Score (%)',
+                'Result Grade',
+                'Status',
+                'Reviewed By',
+                'Reviewed At',
+                'Executive Summary',
+            ]);
+
+            foreach ($reports as $r) {
+                fputcsv($handle, [
+                    $r->report_number,
+                    $r->title,
+                    $r->location->name ?? 'N/A',
+                    $r->inspector->name ?? 'N/A',
+                    $r->inspector->employee_code ?? 'N/A',
+                    $r->category,
+                    $r->inspection_date ? $r->inspection_date->format('Y-m-d') : '',
+                    $r->compliance_score,
+                    $r->result_grade,
+                    ucfirst($r->status),
+                    $r->reviewer->name ?? 'N/A',
+                    $r->reviewed_at ? $r->reviewed_at->format('Y-m-d H:i') : '',
+                    $r->executive_summary,
+                ]);
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ]);
     }
 }

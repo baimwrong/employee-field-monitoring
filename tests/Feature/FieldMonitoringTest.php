@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
 use App\Models\FieldVisit;
 use App\Models\GeographicalArea;
 use App\Models\InspectionReport;
 use App\Models\Location;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class FieldMonitoringTest extends TestCase
@@ -102,6 +105,12 @@ class FieldMonitoringTest extends TestCase
     public function test_can_record_gps_checkin_for_field_visit(): void
     {
         $location = Location::first();
+
+        // Clear any active in-progress visits for this officer to allow new check-in
+        FieldVisit::where('user_id', $this->fieldOfficer->id)
+            ->where('status', 'in_progress')
+            ->update(['status' => 'completed']);
+
         $visit = FieldVisit::create([
             'visit_code' => 'TEST-VST-'.rand(1000, 9999),
             'user_id' => $this->fieldOfficer->id,
@@ -379,5 +388,158 @@ class FieldMonitoringTest extends TestCase
         $response = $this->actingAs($this->admin)->delete("/locations/{$locationWithVisits->id}");
         $response->assertSessionHas('warning');
         $this->assertDatabaseHas('locations', ['id' => $locationWithVisits->id]);
+    }
+
+    public function test_inactive_employee_cannot_log_in(): void
+    {
+        $inactiveOfficer = User::where('status', 'inactive')->first();
+        if (! $inactiveOfficer) {
+            $inactiveOfficer = User::factory()->create([
+                'status' => 'inactive',
+                'password' => bcrypt('secret123'),
+            ]);
+        } else {
+            $inactiveOfficer->update(['password' => bcrypt('secret123')]);
+        }
+
+        $response = $this->post('/login', [
+            'email' => $inactiveOfficer->email,
+            'password' => 'secret123',
+        ]);
+
+        $response->assertSessionHasErrors('email');
+        $this->assertGuest();
+    }
+
+    public function test_cannot_check_in_while_having_another_active_visit(): void
+    {
+        $location = Location::first();
+
+        // Ensure officer has an in_progress visit
+        FieldVisit::where('user_id', $this->fieldOfficer->id)
+            ->where('status', 'in_progress')
+            ->update(['status' => 'completed']);
+
+        $activeVisit = FieldVisit::create([
+            'visit_code' => 'ACTIVE-'.rand(1000, 9999),
+            'user_id' => $this->fieldOfficer->id,
+            'location_id' => $location->id,
+            'scheduled_at' => now(),
+            'status' => 'in_progress',
+            'check_in_at' => now(),
+        ]);
+
+        // Attempt second check-in
+        $secondVisit = FieldVisit::create([
+            'visit_code' => 'SECOND-'.rand(1000, 9999),
+            'user_id' => $this->fieldOfficer->id,
+            'location_id' => $location->id,
+            'scheduled_at' => now(),
+            'status' => 'scheduled',
+        ]);
+
+        $response = $this->actingAs($this->fieldOfficer)->post("/visits/{$secondVisit->id}/check-in", [
+            'latitude' => $location->latitude,
+            'longitude' => $location->longitude,
+        ]);
+
+        $response->assertSessionHas('warning');
+        $secondVisit->refresh();
+        $this->assertEquals('scheduled', $secondVisit->status);
+    }
+
+    public function test_authenticated_user_can_update_own_password(): void
+    {
+        $testUser = User::factory()->create([
+            'password' => bcrypt('oldpassword123'),
+        ]);
+
+        $response = $this->actingAs($testUser)->put('/profile/password', [
+            'current_password' => 'oldpassword123',
+            'password' => 'newpassword123',
+            'password_confirmation' => 'newpassword123',
+        ]);
+
+        $response->assertSessionHas('success');
+        $testUser->refresh();
+        $this->assertTrue(Hash::check('newpassword123', $testUser->password));
+    }
+
+    public function test_supervisor_can_force_checkout_stale_visit(): void
+    {
+        $location = Location::first();
+        $staleVisit = FieldVisit::create([
+            'visit_code' => 'STALE-'.rand(1000, 9999),
+            'user_id' => $this->fieldOfficer->id,
+            'location_id' => $location->id,
+            'scheduled_at' => now()->subDay(),
+            'status' => 'in_progress',
+            'check_in_at' => now()->subDay(),
+        ]);
+
+        $response = $this->actingAs($this->supervisor)->post("/visits/{$staleVisit->id}/force-checkout", [
+            'visit_summary' => 'Officer forgot to check out yesterday. Verified via CCTV logs.',
+        ]);
+
+        $response->assertSessionHas('success');
+        $staleVisit->refresh();
+        $this->assertEquals('completed', $staleVisit->status);
+        $this->assertStringContainsString('Supervisor Override', $staleVisit->client_representative_name);
+    }
+
+    public function test_can_export_visits_to_csv(): void
+    {
+        $response = $this->actingAs($this->supervisor)->get('/visits/export/csv');
+        $response->assertStatus(200);
+        $this->assertStringContainsString('text/csv', $response->headers->get('Content-Type'));
+        $this->assertStringContainsString('Visit Code', $response->streamedContent());
+    }
+
+    public function test_can_export_inspections_to_csv(): void
+    {
+        $response = $this->actingAs($this->supervisor)->get('/inspections/export/csv');
+        $response->assertStatus(200);
+        $this->assertStringContainsString('text/csv', $response->headers->get('Content-Type'));
+        $this->assertStringContainsString('Report Number', $response->streamedContent());
+    }
+
+    public function test_field_officer_can_ping_realtime_location(): void
+    {
+        $response = $this->actingAs($this->fieldOfficer)->postJson('/api/officer/ping-location', [
+            'latitude' => -6.2155,
+            'longitude' => 106.8422,
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertJson(['status' => 'success']);
+
+        $this->fieldOfficer->refresh();
+        $this->assertEquals(-6.2155, $this->fieldOfficer->current_latitude);
+        $this->assertEquals(106.8422, $this->fieldOfficer->current_longitude);
+    }
+
+    public function test_keep_alive_endpoint_returns_success(): void
+    {
+        $response = $this->actingAs($this->fieldOfficer)->getJson('/api/keep-alive');
+        $response->assertStatus(200);
+        $response->assertJson(['status' => 'alive']);
+    }
+
+    public function test_activity_logs_can_be_pruned(): void
+    {
+        $log = ActivityLog::create([
+            'action_type' => 'test_old',
+            'title' => 'Old record for pruning test',
+        ]);
+        DB::table('activity_logs')
+            ->where('id', $log->id)
+            ->update(['created_at' => now()->subDays(95)]);
+
+        $this->artisan('model:prune', ['--model' => [ActivityLog::class]])
+            ->assertSuccessful();
+
+        $this->assertDatabaseMissing('activity_logs', [
+            'id' => $log->id,
+        ]);
     }
 }

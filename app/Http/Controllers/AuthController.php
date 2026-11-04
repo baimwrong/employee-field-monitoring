@@ -34,6 +34,18 @@ class AuthController extends Controller
         $remember = $request->boolean('remember', false);
 
         if (Auth::attempt($credentials, $remember)) {
+            // Security check: Only active accounts are permitted into the monitoring platform
+            if (Auth::user()->status !== 'active') {
+                $status = Auth::user()->status;
+                Auth::logout();
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+
+                return back()->withErrors([
+                    'email' => "Your staff account is currently {$status}. Please contact an administrator to restore access.",
+                ])->onlyInput('email');
+            }
+
             $request->session()->regenerate();
 
             ActivityLog::log(

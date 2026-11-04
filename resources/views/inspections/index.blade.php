@@ -11,6 +11,10 @@
         </p>
     </div>
     <div class="d-flex gap-2">
+        <a href="{{ route('inspections.exportCsv', request()->query()) }}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" title="Export Current Filtered Reports to CSV">
+            <i class="fa-solid fa-file-csv text-success"></i>
+            <span>Export CSV</span>
+        </a>
         <a href="{{ route('inspections.create') }}" class="btn btn-primary btn-sm d-flex align-items-center gap-2">
             <i class="fa-solid fa-plus"></i>
             <span>Submit Inspection Report</span>

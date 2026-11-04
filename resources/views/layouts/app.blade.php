@@ -11,14 +11,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
-    <!-- Bootstrap 5.3.3 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    
-    <!-- Font Awesome 6.6.0 -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/css/all.min.css" rel="stylesheet">
-
-    <!-- Leaflet 1.9.4 CSS -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Local Vendor CSS (Self-Hosted for High Availability / Air-Gapped Networks) -->
+    <link href="{{ asset('vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
+    <link href="{{ asset('vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="{{ asset('vendor/leaflet/leaflet.css') }}" />
 
     <style>
         :root {
@@ -302,6 +298,15 @@
                         <span class="d-none d-sm-inline">Map Layer / Google Maps</span>
                     </button>
 
+                    <!-- Field Officer Live Duty GPS Tracker Switch -->
+                    @if(auth()->user()?->role === 'field_officer')
+                    <button type="button" id="dutyGpsToggleBtn" class="btn btn-sm btn-outline-success d-flex align-items-center gap-2" title="Toggle automatic background GPS beacon to operations dispatch">
+                        <span class="spinner-grow spinner-grow-sm text-success d-none" id="dutyGpsPulse" role="status" style="width: 8px; height: 8px;"></span>
+                        <i class="fa-solid fa-satellite-dish" id="dutyGpsIcon"></i>
+                        <span class="d-none d-md-inline" id="dutyGpsText">Live Duty GPS: Off</span>
+                    </button>
+                    @endif
+
                     <!-- Realtime Clock -->
                     <div class="d-none d-lg-flex align-items-center gap-2 px-3 py-1 bg-light rounded-pill border text-muted" style="font-size: 0.8rem;">
                         <i class="fa-regular fa-clock"></i>
@@ -359,6 +364,12 @@
                                 <a class="dropdown-item" href="{{ route('users.index') }}"><i class="fa-solid fa-users-gear me-2 text-muted"></i>Staff Directory & Roles</a>
                             </li>
                             @endif
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
+                                    <i class="fa-solid fa-key me-2 text-muted"></i>Change Password
+                                </button>
+                            </li>
                             <li><hr class="dropdown-divider"></li>
                             <li>
                                 <form action="{{ route('logout') }}" method="POST" class="px-2">
@@ -465,11 +476,47 @@
         </div>
     </div>
 
-    <!-- Bootstrap 5.3.3 JS Bundle -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Self-Service Change Password Modal -->
+    <div class="modal fade" id="changePasswordModal" tabindex="-1" aria-labelledby="changePasswordModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content border-0 shadow">
+                <form action="{{ route('profile.password') }}" method="POST">
+                    @csrf
+                    @method('PUT')
+                    <div class="modal-header bg-light">
+                        <h6 class="modal-title fw-bold" id="changePasswordModalLabel">
+                            <i class="fa-solid fa-key text-primary me-2"></i>Change Password
+                        </h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body p-3">
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small">Current Password</label>
+                            <input type="password" name="current_password" class="form-control form-control-sm" required autocomplete="current-password">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold small">New Password (min 8 chars)</label>
+                            <input type="password" name="password" class="form-control form-control-sm" required minlength="8" autocomplete="new-password">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold small">Confirm New Password</label>
+                            <input type="password" name="password_confirmation" class="form-control form-control-sm" required minlength="8" autocomplete="new-password">
+                        </div>
+                    </div>
+                    <div class="modal-footer bg-light">
+                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i class="fa-solid fa-check me-1"></i>Update Password
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
-    <!-- Leaflet 1.9.4 JS -->
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Local Vendor JS (Self-Hosted) -->
+    <script src="{{ asset('vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+    <script src="{{ asset('vendor/leaflet/leaflet.js') }}"></script>
 
     <script>
         // Sidebar Mobile Toggle
@@ -533,6 +580,95 @@
         if (layerSelect) {
             layerSelect.value = window.getSavedMapLayer();
         }
+
+        // Field Officer Live Duty GPS Beacon
+        (function() {
+            const toggleBtn = document.getElementById('dutyGpsToggleBtn');
+            if (!toggleBtn) return;
+
+            let watchId = null;
+            let lastPingTime = 0;
+            const PING_INTERVAL_MS = 25000;
+
+            const pulseEl = document.getElementById('dutyGpsPulse');
+            const iconEl = document.getElementById('dutyGpsIcon');
+            const textEl = document.getElementById('dutyGpsText');
+
+            function sendPing(payload) {
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+                fetch('{{ route("api.pingLocation") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                }).catch(err => console.debug('GPS beacon network error:', err));
+            }
+
+            function startGpsTracking() {
+                if (!navigator.geolocation) {
+                    alert('Geolocation is not supported by your browser.');
+                    return;
+                }
+
+                toggleBtn.classList.remove('btn-outline-success');
+                toggleBtn.classList.add('btn-success', 'text-white');
+                if (pulseEl) pulseEl.classList.remove('d-none');
+                if (textEl) textEl.textContent = 'Live Duty GPS: Active';
+                localStorage.setItem('fieldtrack_duty_gps', 'active');
+
+                watchId = navigator.geolocation.watchPosition(
+                    position => {
+                        const now = Date.now();
+                        if (now - lastPingTime < PING_INTERVAL_MS) return;
+                        lastPingTime = now;
+
+                        const payload = {
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude,
+                            battery_level: null
+                        };
+
+                        if (navigator.getBattery) {
+                            navigator.getBattery().then(batt => {
+                                payload.battery_level = Math.round(batt.level * 100);
+                                sendPing(payload);
+                            }).catch(() => sendPing(payload));
+                        } else {
+                            sendPing(payload);
+                        }
+                    },
+                    err => console.warn('Duty GPS error:', err.message),
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+                );
+            }
+
+            function stopGpsTracking() {
+                if (watchId !== null) {
+                    navigator.geolocation.clearWatch(watchId);
+                    watchId = null;
+                }
+                toggleBtn.classList.remove('btn-success', 'text-white');
+                toggleBtn.classList.add('btn-outline-success');
+                if (pulseEl) pulseEl.classList.add('d-none');
+                if (textEl) textEl.textContent = 'Live Duty GPS: Off';
+                localStorage.setItem('fieldtrack_duty_gps', 'inactive');
+            }
+
+            toggleBtn.addEventListener('click', function() {
+                if (watchId === null) {
+                    startGpsTracking();
+                } else {
+                    stopGpsTracking();
+                }
+            });
+
+            if (localStorage.getItem('fieldtrack_duty_gps') === 'active') {
+                startGpsTracking();
+            }
+        })();
     </script>
     @stack('scripts')
 </body>

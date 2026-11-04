@@ -10,14 +10,18 @@
             Record and dispatch field visits, monitor real-time GPS check-ins, verify geofence accuracy, and log on-site durations.
         </p>
     </div>
-    @if(auth()->user()->hasAnyRole(['admin', 'supervisor']))
     <div class="d-flex gap-2">
+        <a href="{{ route('visits.exportCsv', request()->query()) }}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" title="Export Current Filtered Visits to CSV">
+            <i class="fa-solid fa-file-csv text-success"></i>
+            <span>Export CSV</span>
+        </a>
+        @if(auth()->user()->hasAnyRole(['admin', 'supervisor']))
         <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#scheduleVisitModal">
             <i class="fa-solid fa-plus"></i>
             <span>Record / Schedule Visit</span>
         </button>
+        @endif
     </div>
-    @endif
 </div>
 
 <!-- Filters Bar -->
@@ -136,6 +140,13 @@
                                         <span class="badge bg-warning-subtle text-warning py-0 px-1 ms-1">Outside ({{ $visit->location->geofence_radius_meters }}m)</span>
                                     @endif
                                 </div>
+                                @if($visit->check_in_photo)
+                                    <div class="mt-1">
+                                        <button type="button" class="btn btn-outline-secondary py-0 px-1 d-inline-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#photoModal{{ $visit->id }}" style="font-size: 0.7rem;">
+                                            <i class="fa-solid fa-camera text-primary"></i> Photo Proof
+                                        </button>
+                                    </div>
+                                @endif
                             @else
                                 <span class="text-muted fst-italic">Pending Check-In</span>
                             @endif
@@ -165,6 +176,13 @@
                                 @if($visit->status === 'in_progress' && (auth()->user()->hasAnyRole(['admin', 'supervisor']) || auth()->id() === $visit->user_id))
                                     <button class="btn btn-sm btn-outline-primary py-1 px-2" data-bs-toggle="modal" data-bs-target="#checkOutModal{{ $visit->id }}" title="Record GPS Check-out">
                                         <i class="fa-solid fa-flag-checkered me-1"></i>Check-Out
+                                    </button>
+                                @endif
+
+                                <!-- Supervisor force check-out for abandoned/stale visits -->
+                                @if($visit->status === 'in_progress' && auth()->user()->hasAnyRole(['admin', 'supervisor']))
+                                    <button class="btn btn-sm btn-outline-warning py-1 px-2" data-bs-toggle="modal" data-bs-target="#forceCheckOutModal{{ $visit->id }}" title="Supervisor Force Check-Out">
+                                        <i class="fa-solid fa-clock-rotate-left me-1"></i>Force Close
                                     </button>
                                 @endif
 
@@ -234,8 +252,8 @@
 
                                         <div class="mb-3">
                                             <label class="form-label fw-semibold small">On-Site Photo Proof (Optional)</label>
-                                            <input type="file" name="check_in_photo" class="form-control form-control-sm" accept="image/*" capture="environment">
-                                            <small class="text-muted" style="font-size: 0.75rem;">Photo at site entrance or lobby.</small>
+                                            <input type="file" name="check_in_photo" class="form-control form-control-sm checkin-photo-input" accept="image/*" capture="environment">
+                                            <div class="checkin-photo-feedback text-muted small mt-1" style="font-size: 0.75rem;">Photo at site entrance or lobby.</div>
                                         </div>
 
                                         <div class="mb-2">
@@ -312,6 +330,82 @@
                             </div>
                         </div>
                     </div>
+
+                    @if($visit->check_in_photo)
+                    <!-- Check-in Photo Preview Modal -->
+                    <div class="modal fade" id="photoModal{{ $visit->id }}" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content border-0 shadow">
+                                <div class="modal-header bg-light">
+                                    <h6 class="modal-title fw-bold">
+                                        <i class="fa-solid fa-camera text-primary me-2"></i>Entrance Photo Proof: {{ $visit->visit_code }}
+                                    </h6>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body p-3 text-center">
+                                    <img src="{{ asset('storage/' . $visit->check_in_photo) }}" alt="Entrance Photo" class="img-fluid rounded border shadow-sm mb-3" style="max-height: 380px; width: 100%; object-fit: contain; background: #0f172a;">
+                                    <div class="text-start p-2 bg-light rounded small border">
+                                        <div class="d-flex justify-content-between mb-1">
+                                            <span class="text-muted">Target Site:</span>
+                                            <span class="fw-bold text-dark">{{ $visit->location->name ?? 'Site' }}</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between mb-1">
+                                            <span class="text-muted">Arrival Timestamp:</span>
+                                            <span class="text-dark">{{ $visit->check_in_at ? $visit->check_in_at->format('M d, Y H:i:s') : 'N/A' }}</span>
+                                        </div>
+                                        <div class="d-flex justify-content-between">
+                                            <span class="text-muted">Geofence Proximity:</span>
+                                            <span class="{{ $visit->is_within_geofence ? 'text-success fw-bold' : 'text-warning fw-bold' }}">
+                                                {{ $visit->check_in_distance_meters }}m ({{ $visit->is_within_geofence ? 'Verified Within Perimeter' : 'Outside Boundary' }})
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer bg-light p-2">
+                                    <a href="{{ asset('storage/' . $visit->check_in_photo) }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                        <i class="fa-solid fa-arrow-up-right-from-square me-1"></i>Open Full Size
+                                    </a>
+                                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Close</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    @endif
+
+                    @if($visit->status === 'in_progress' && auth()->user()->hasAnyRole(['admin', 'supervisor']))
+                    <!-- Supervisor Force Check-Out Modal -->
+                    <div class="modal fade" id="forceCheckOutModal{{ $visit->id }}" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content border-0 shadow">
+                                <form action="{{ route('visits.forceCheckOut', $visit) }}" method="POST">
+                                    @csrf
+                                    <div class="modal-header bg-warning-subtle text-warning-emphasis">
+                                        <h6 class="modal-title fw-bold">
+                                            <i class="fa-solid fa-triangle-exclamation me-2"></i>Supervisor Force Check-Out: {{ $visit->visit_code }}
+                                        </h6>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body p-3">
+                                        <div class="alert alert-warning small mb-3">
+                                            <i class="fa-solid fa-info-circle me-1"></i>
+                                            Use this action if the field officer forgot to check out upon leaving site. The visit will be marked as completed with supervisor sign-off.
+                                        </div>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold small">Force Check-Out Reason / Note <span class="text-danger">*</span></label>
+                                            <textarea name="visit_summary" class="form-control form-control-sm" rows="3" placeholder="e.g. Officer left site at 17:00, confirmed by security log. Verified via phone." required></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer bg-light">
+                                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                                        <button type="submit" class="btn btn-warning btn-sm">
+                                            <i class="fa-solid fa-check me-1"></i>Confirm Force Check-Out
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    @endif
                 @empty
                     <tr>
                         <td colspan="8" class="text-center text-muted py-5">
@@ -474,5 +568,71 @@ function captureCheckOutGPS(visitId) {
         { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
 }
+
+// Client-side HTML5 canvas image downscaling for check-in photo capture
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.classList.contains('checkin-photo-input')) {
+        const input = e.target;
+        const feedback = input.closest('.mb-3')?.querySelector('.checkin-photo-feedback');
+        if (!input.files || !input.files[0]) return;
+
+        if (feedback) {
+            feedback.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-primary me-1"></i>Optimizing photo capture...';
+        }
+
+        const file = input.files[0];
+        if (!file.type.startsWith('image/')) return;
+
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            const img = new Image();
+            img.onload = function() {
+                let width = img.width;
+                let height = img.height;
+                const maxWidth = 1920;
+                const maxHeight = 1080;
+
+                if (width > maxWidth || height > maxHeight) {
+                    if (width / height > maxWidth / maxHeight) {
+                        height = Math.round((height * maxWidth) / width);
+                        width = maxWidth;
+                    } else {
+                        width = Math.round((width * maxHeight) / height);
+                        height = maxHeight;
+                    }
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                canvas.toBlob(function(blob) {
+                    if (blob && blob.size < file.size) {
+                        const compressedFile = new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), {
+                            type: 'image/jpeg',
+                            lastModified: Date.now()
+                        });
+                        const dt = new DataTransfer();
+                        dt.items.add(compressedFile);
+                        input.files = dt.files;
+                        if (feedback) {
+                            const origKb = (file.size / 1024).toFixed(0);
+                            const compKb = (blob.size / 1024).toFixed(0);
+                            feedback.innerHTML = `<span class="text-success"><i class="fa-solid fa-check me-1"></i>Optimized: ${compKb} KB (down from ${origKb} KB)</span>`;
+                        }
+                    } else {
+                        if (feedback) {
+                            feedback.innerHTML = `<span class="text-success"><i class="fa-solid fa-check me-1"></i>Photo ready (${(file.size / 1024).toFixed(0)} KB)</span>`;
+                        }
+                    }
+                }, 'image/jpeg', 0.8);
+            };
+            img.src = evt.target.result;
+        };
+        reader.readAsDataURL(file);
+    }
+});
 </script>
 @endpush

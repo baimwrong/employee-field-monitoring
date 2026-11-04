@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FieldVisitController extends Controller
 {
@@ -134,6 +135,22 @@ class FieldVisitController extends Controller
                 return [
                     'success' => false,
                     'message' => "Visit {$lockedVisit->visit_code} is already {$lockedVisit->status} and cannot be checked in.",
+                ];
+            }
+
+            // Concurrency guard: Ensure assigned officer does not have another active in-progress visit
+            $activeOtherVisit = FieldVisit::with('location')
+                ->where('user_id', $lockedVisit->user_id)
+                ->where('id', '!=', $lockedVisit->id)
+                ->where('status', 'in_progress')
+                ->first();
+
+            if ($activeOtherVisit) {
+                $siteName = $activeOtherVisit->location->name ?? 'site';
+
+                return [
+                    'success' => false,
+                    'message' => "Officer already has an active visit in progress ({$activeOtherVisit->visit_code} at {$siteName}). Please check out of that visit before checking in to this site.",
                 ];
             }
 
@@ -270,6 +287,119 @@ class FieldVisitController extends Controller
         );
 
         return redirect()->route('visits.index')->with('success', "Visit {$visit->visit_code} completed successfully. Duration: {$result['duration']} minutes.");
+    }
+
+    /**
+     * Supervisor override to force check-out an abandoned/stale in-progress visit.
+     */
+    public function forceCheckOut(Request $request, FieldVisit $visit): RedirectResponse
+    {
+        $validated = $request->validate([
+            'visit_summary' => 'required|string|max:1000',
+        ]);
+
+        if ($visit->status !== 'in_progress') {
+            return redirect()->route('visits.index')->with('warning', "Visit {$visit->visit_code} must be in-progress to force check-out (Current: {$visit->status}).");
+        }
+
+        $checkInTime = $visit->check_in_at ?? now();
+        $durationMinutes = max(1, (int) round($checkInTime->diffInMinutes(now())));
+        $supervisor = auth()->user();
+
+        $visit->update([
+            'status' => 'completed',
+            'check_out_at' => now(),
+            'duration_minutes' => $durationMinutes,
+            'visit_summary' => $visit->visit_summary."\n[Force Checked-Out by Supervisor {$supervisor->name}]: ".$validated['visit_summary'],
+            'client_representative_name' => "Supervisor Override ({$supervisor->name})",
+        ]);
+
+        ActivityLog::log(
+            'visit_force_checkout',
+            "Supervisor {$supervisor->name} force-closed visit {$visit->visit_code}",
+            "Reason: {$validated['visit_summary']}",
+            $visit,
+            $supervisor
+        );
+
+        return redirect()->route('visits.index')->with('success', "Visit {$visit->visit_code} was force-checked out successfully.");
+    }
+
+    /**
+     * Export filtered field visits to CSV format.
+     */
+    public function exportCsv(Request $request): StreamedResponse
+    {
+        $statusFilter = $request->input('status');
+        $employeeFilter = $request->input('user_id');
+        $areaFilter = $request->input('area_id');
+        $dateFilter = $request->input('date');
+
+        $query = FieldVisit::with(['user', 'location.geographicalArea']);
+
+        $currentUser = auth()->user();
+        if ($currentUser && $currentUser->isFieldOfficer()) {
+            $query->where('user_id', $currentUser->id);
+        } elseif ($employeeFilter) {
+            $query->where('user_id', $employeeFilter);
+        }
+
+        if ($statusFilter) {
+            $query->where('status', $statusFilter);
+        }
+        if ($areaFilter) {
+            $query->where('geographical_area_id', $areaFilter);
+        }
+        if ($dateFilter) {
+            $query->whereDate('scheduled_at', $dateFilter);
+        }
+
+        $visits = $query->latest('scheduled_at')->get();
+        $filename = 'field_visits_'.date('Ymd_His').'.csv';
+
+        return response()->streamDownload(function () use ($visits) {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'Visit Code',
+                'Officer Name',
+                'Employee Code',
+                'Location Name',
+                'Zone / Area',
+                'Scheduled Date',
+                'Status',
+                'Check-In Time',
+                'Check-In Distance (m)',
+                'Within Geofence',
+                'Check-Out Time',
+                'Duration (Minutes)',
+                'Client Sign-Off',
+                'Summary / Notes',
+            ]);
+
+            foreach ($visits as $v) {
+                fputcsv($handle, [
+                    $v->visit_code,
+                    $v->user->name ?? 'N/A',
+                    $v->user->employee_code ?? 'N/A',
+                    $v->location->name ?? 'N/A',
+                    $v->location->geographicalArea->name ?? 'N/A',
+                    $v->scheduled_at ? $v->scheduled_at->format('Y-m-d H:i') : '',
+                    ucfirst($v->status),
+                    $v->check_in_at ? $v->check_in_at->format('Y-m-d H:i:s') : '',
+                    $v->check_in_distance_meters ?? '',
+                    $v->is_within_geofence ? 'Yes' : 'No',
+                    $v->check_out_at ? $v->check_out_at->format('Y-m-d H:i:s') : '',
+                    $v->duration_minutes ?? '',
+                    $v->client_representative_name ?? '',
+                    $v->visit_summary ?? '',
+                ]);
+            }
+
+            fclose($handle);
+        }, $filename, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ]);
     }
 
     /**

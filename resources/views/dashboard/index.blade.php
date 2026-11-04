@@ -158,14 +158,22 @@
             </div>
         </div>
 
-        <div class="d-flex align-items-center gap-2">
-            <span class="text-muted">Filter Zone:</span>
-            <select class="form-select form-select-sm" id="zoneFilterSelect" style="width: 180px;">
-                <option value="all">All Geographical Zones</option>
-                @foreach($areas as $area)
-                    <option value="{{ $area->id }}">{{ $area->name }}</option>
-                @endforeach
-            </select>
+        <div class="d-flex align-items-center gap-3">
+            <div class="form-check form-switch mb-0" title="Automatically refreshes GPS and today's visits every 45 seconds">
+                <input class="form-check-input" type="checkbox" role="switch" id="autoRefreshToggle" checked>
+                <label class="form-check-label text-muted" for="autoRefreshToggle" style="font-size: 0.8rem;">
+                    <i class="fa-solid fa-arrows-rotate text-primary me-1" id="refreshIcon"></i>Live (45s)
+                </label>
+            </div>
+            <div class="d-flex align-items-center gap-1">
+                <span class="text-muted">Filter Zone:</span>
+                <select class="form-select form-select-sm" id="zoneFilterSelect" style="width: 180px;">
+                    <option value="all">All Geographical Zones</option>
+                    @foreach($areas as $area)
+                        <option value="{{ $area->id }}">{{ $area->name }}</option>
+                    @endforeach
+                </select>
+            </div>
         </div>
     </div>
 
@@ -594,6 +602,32 @@ document.addEventListener('DOMContentLoaded', function () {
 
     // Initial Load
     loadMapData();
+
+    // Auto-refresh dispatcher polling loop (every 45 seconds)
+    let autoRefreshTimer = null;
+    function startAutoRefresh() {
+        if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+        autoRefreshTimer = setInterval(() => {
+            const toggle = document.getElementById('autoRefreshToggle');
+            if (toggle && toggle.checked) {
+                const icon = document.getElementById('refreshIcon');
+                if (icon) icon.classList.add('fa-spin');
+                loadMapData(document.getElementById('zoneFilterSelect').value);
+                setTimeout(() => {
+                    if (icon) icon.classList.remove('fa-spin');
+                }, 1200);
+            }
+        }, 45000);
+    }
+    startAutoRefresh();
+
+    document.getElementById('autoRefreshToggle')?.addEventListener('change', function() {
+        if (this.checked) {
+            startAutoRefresh();
+        } else if (autoRefreshTimer) {
+            clearInterval(autoRefreshTimer);
+        }
+    });
 
     // Zone Filter Select
     document.getElementById('zoneFilterSelect').addEventListener('change', function () {

@@ -150,4 +150,30 @@ class UserController extends Controller
 
         return redirect()->route('users.index')->with('success', "Staff member '{$name}' deleted successfully.");
     }
+
+    /**
+     * Self-service password change for authenticated users.
+     */
+    public function updatePassword(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'current_password' => ['required', 'current_password'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ]);
+
+        $user = $request->user();
+        $user->update([
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        ActivityLog::log(
+            'password_changed',
+            'Changed account password',
+            'Self-service password update.',
+            $user,
+            $user
+        );
+
+        return back()->with('success', 'Your account password has been updated successfully.');
+    }
 }
