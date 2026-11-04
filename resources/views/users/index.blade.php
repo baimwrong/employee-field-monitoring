@@ -11,7 +11,11 @@
         </p>
     </div>
     @if(auth()->user()->isAdmin())
-    <div class="d-flex gap-2">
+    <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#bulkImportUsersModal">
+            <i class="fa-solid fa-file-csv"></i>
+            <span>Bulk Import CSV</span>
+        </button>
         <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#createStaffModal">
             <i class="fa-solid fa-user-plus"></i>
             <span>Add New Staff Member</span>
@@ -359,4 +363,52 @@
         </div>
     </div>
 </div>
+
+@if(auth()->user()->isAdmin())
+<!-- Bulk Import Staff Modal -->
+<div class="modal fade" id="bulkImportUsersModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form action="{{ route('users.import') }}" method="POST" enctype="multipart/form-data">
+                @csrf
+                <div class="modal-header bg-light">
+                    <h5 class="modal-title fw-bold">
+                        <i class="fa-solid fa-file-csv text-primary me-2"></i>Bulk Import Staff Roster
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-3">
+                        Upload a CSV roster to ingest field officers, supervisors, or administrators and generate system accounts in bulk.
+                    </p>
+
+                    <div class="p-3 bg-light rounded border mb-3 small">
+                        <div class="fw-bold mb-1"><i class="fa-solid fa-circle-info text-primary me-1"></i>Expected Columns:</div>
+                        <code class="text-break">name, email, employee_code, phone, role, status, password, assigned_area</code>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Select CSV File <span class="text-danger">*</span></label>
+                        <input type="file" name="csv_file" class="form-control" accept=".csv,text/csv,text/plain" required>
+                        <small class="text-muted">Maximum file size: 5MB</small>
+                    </div>
+
+                    <div class="d-flex align-items-center justify-content-between p-2 rounded bg-light border">
+                        <span class="small text-muted">Need a template file?</span>
+                        <a href="{{ route('users.importTemplate') }}" class="btn btn-sm btn-outline-secondary">
+                            <i class="fa-solid fa-download me-1"></i>Download Sample CSV
+                        </a>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="fa-solid fa-cloud-arrow-up me-1"></i>Upload & Import
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+@endif
 @endsection

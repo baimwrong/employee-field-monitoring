@@ -8,6 +8,7 @@ use App\Models\GeographicalArea;
 use App\Models\InspectionReport;
 use App\Models\Location;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
@@ -541,5 +542,99 @@ class FieldMonitoringTest extends TestCase
         $this->assertDatabaseMissing('activity_logs', [
             'id' => $log->id,
         ]);
+    }
+
+    public function test_can_download_locations_import_template(): void
+    {
+        $response = $this->actingAs($this->supervisor)->get('/locations/import/template');
+        $response->assertStatus(200);
+        $this->assertStringContainsString('text/csv', $response->headers->get('Content-Type'));
+        $this->assertStringContainsString('geofence_radius_meters', $response->streamedContent());
+    }
+
+    public function test_can_bulk_import_locations_from_csv(): void
+    {
+        $uniqueName = 'Bulk Site '.uniqid();
+        $csv = "name,client_name,client_contact,address,latitude,longitude,geofence_radius_meters,location_type,priority,geographical_area\n"
+             ."{$uniqueName},Test Corp,081111111,Jl. Sudirman,-6.2150000,106.8250000,150,Retail,normal,\n";
+        $file = UploadedFile::fake()->createWithContent('locations.csv', $csv);
+
+        $response = $this->actingAs($this->supervisor)->post('/locations/import', [
+            'csv_file' => $file,
+        ]);
+
+        $response->assertRedirect('/locations');
+        $response->assertSessionHas('success');
+        $this->assertDatabaseHas('locations', ['name' => $uniqueName]);
+    }
+
+    public function test_can_download_users_import_template(): void
+    {
+        $response = $this->actingAs($this->admin)->get('/users/import/template');
+        $response->assertStatus(200);
+        $this->assertStringContainsString('text/csv', $response->headers->get('Content-Type'));
+        $this->assertStringContainsString('employee_code', $response->streamedContent());
+    }
+
+    public function test_can_bulk_import_users_from_csv(): void
+    {
+        $uniqueEmail = 'bulk.'.uniqid().'@fieldtrack.com';
+        $uniqueEmpCode = 'EMP-'.rand(10000, 99999);
+        $csv = "name,email,employee_code,phone,role,status,password,assigned_area\n"
+             ."Bulk Inspector,{$uniqueEmail},{$uniqueEmpCode},0812999999,field_officer,active,FieldTrack123!,\n";
+        $file = UploadedFile::fake()->createWithContent('users.csv', $csv);
+
+        $response = $this->actingAs($this->admin)->post('/users/import', [
+            'csv_file' => $file,
+        ]);
+
+        $response->assertRedirect('/users');
+        $response->assertSessionHas('success');
+        $this->assertDatabaseHas('users', ['email' => $uniqueEmail, 'employee_code' => $uniqueEmpCode]);
+    }
+
+    public function test_can_download_visits_import_template(): void
+    {
+        $response = $this->actingAs($this->supervisor)->get('/visits/import/template');
+        $response->assertStatus(200);
+        $this->assertStringContainsString('text/csv', $response->headers->get('Content-Type'));
+        $this->assertStringContainsString('purpose', $response->streamedContent());
+    }
+
+    public function test_can_bulk_import_field_visits_from_csv(): void
+    {
+        $location = Location::first();
+        $instructions = 'Automated bulk dispatch instruction '.uniqid();
+        $scheduledTime = now()->addDays(3)->format('Y-m-d 10:00:00');
+
+        $csv = "employee,location,scheduled_at,purpose,instructions\n"
+             ."{$this->fieldOfficer->employee_code},{$location->code},{$scheduledTime},routine_inspection,{$instructions}\n";
+        $file = UploadedFile::fake()->createWithContent('visits.csv', $csv);
+
+        $response = $this->actingAs($this->supervisor)->post('/visits/import', [
+            'csv_file' => $file,
+        ]);
+
+        $response->assertRedirect('/visits');
+        $response->assertSessionHas('success');
+        $this->assertDatabaseHas('field_visits', [
+            'user_id' => $this->fieldOfficer->id,
+            'location_id' => $location->id,
+            'visit_summary' => $instructions,
+        ]);
+    }
+
+    public function test_field_officer_cannot_bulk_import(): void
+    {
+        $file = UploadedFile::fake()->createWithContent('test.csv', "name\nTest\n");
+
+        $locResponse = $this->actingAs($this->fieldOfficer)->post('/locations/import', ['csv_file' => $file]);
+        $locResponse->assertStatus(403);
+
+        $userResponse = $this->actingAs($this->fieldOfficer)->post('/users/import', ['csv_file' => $file]);
+        $userResponse->assertStatus(403);
+
+        $visitResponse = $this->actingAs($this->fieldOfficer)->post('/visits/import', ['csv_file' => $file]);
+        $visitResponse->assertStatus(403);
     }
 }

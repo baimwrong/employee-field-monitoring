@@ -5,7 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\ActivityLog;
 use App\Models\GeographicalArea;
 use App\Models\Location;
+use App\Services\CsvImportService;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class LocationController extends Controller
 {
@@ -126,5 +129,86 @@ class LocationController extends Controller
         ActivityLog::log('location_deleted', "Deleted Location: {$name}");
 
         return redirect()->route('locations.index')->with('success', "Location '{$name}' deleted.");
+    }
+
+    /**
+     * Download a sample CSV template for bulk locations import.
+     */
+    public function downloadImportTemplate(): StreamedResponse
+    {
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="locations_import_template.csv"',
+        ];
+
+        return response()->streamDownload(function () {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'name',
+                'client_name',
+                'client_contact',
+                'address',
+                'latitude',
+                'longitude',
+                'geofence_radius_meters',
+                'location_type',
+                'priority',
+                'geographical_area',
+            ]);
+            fputcsv($handle, [
+                'Grand Indonesia Mall',
+                'PT Grand Indonesia',
+                '08119876543',
+                'Jl. M.H. Thamrin No.1, Jakarta Pusat',
+                '-6.1950000',
+                '106.8200000',
+                '150',
+                'Retail',
+                'normal',
+                'Central Jakarta Business District',
+            ]);
+            fputcsv($handle, [
+                'Plaza Indonesia Tower',
+                'PT Plaza Indonesia',
+                '08129876543',
+                'Jl. M.H. Thamrin Kav 28-30, Jakarta Pusat',
+                '-6.1925000',
+                '106.8225000',
+                '120',
+                'Office',
+                'high',
+                'Central Jakarta Business District',
+            ]);
+            fclose($handle);
+        }, 'locations_import_template.csv', $headers);
+    }
+
+    /**
+     * Bulk import locations from an uploaded CSV file.
+     */
+    public function importCsv(Request $request, CsvImportService $importer): RedirectResponse
+    {
+        $request->validate([
+            'csv_file' => 'required|file|mimes:csv,txt|max:5120',
+        ]);
+
+        $result = $importer->importLocations($request->file('csv_file')->getRealPath());
+
+        if ($result['skipped'] > 0) {
+            $errorSummary = implode('; ', array_slice($result['errors'], 0, 5));
+            if (count($result['errors']) > 5) {
+                $errorSummary .= '... and '.(count($result['errors']) - 5).' more';
+            }
+
+            return redirect()->route('locations.index')->with(
+                'warning',
+                "Bulk import completed: {$result['imported']} locations created. {$result['skipped']} row(s) skipped: {$errorSummary}"
+            );
+        }
+
+        return redirect()->route('locations.index')->with(
+            'success',
+            "Bulk import successful: {$result['imported']} locations created."
+        );
     }
 }

@@ -7,6 +7,7 @@ use App\Models\FieldVisit;
 use App\Models\GeographicalArea;
 use App\Models\Location;
 use App\Models\User;
+use App\Services\CsvImportService;
 use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -431,5 +432,71 @@ class FieldVisitController extends Controller
         $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
 
         return (int) round($earthRadius * $c);
+    }
+
+    /**
+     * Download a sample CSV template for bulk field visit schedule dispatch.
+     */
+    public function downloadImportTemplate(): StreamedResponse
+    {
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="visits_dispatch_template.csv"',
+        ];
+
+        return response()->streamDownload(function () {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'employee',
+                'location',
+                'scheduled_at',
+                'purpose',
+                'instructions',
+            ]);
+            fputcsv($handle, [
+                'EMP-1003',
+                'Wisma Nusantara Office Tower',
+                now()->addDay()->format('Y-m-d 09:00:00'),
+                'routine_inspection',
+                'Conduct physical safety perimeter walkthrough and check HVAC log.',
+            ]);
+            fputcsv($handle, [
+                'EMP-1004',
+                'Pacific Place Commercial Hub',
+                now()->addDay()->format('Y-m-d 14:00:00'),
+                'audit',
+                'Verify tenant security compliance and fire egress clearances.',
+            ]);
+            fclose($handle);
+        }, 'visits_dispatch_template.csv', $headers);
+    }
+
+    /**
+     * Bulk dispatch field visits from an uploaded CSV schedule.
+     */
+    public function importCsv(Request $request, CsvImportService $importer): RedirectResponse
+    {
+        $request->validate([
+            'csv_file' => 'required|file|mimes:csv,txt|max:5120',
+        ]);
+
+        $result = $importer->importVisits($request->file('csv_file')->getRealPath());
+
+        if ($result['skipped'] > 0) {
+            $errorSummary = implode('; ', array_slice($result['errors'], 0, 5));
+            if (count($result['errors']) > 5) {
+                $errorSummary .= '... and '.(count($result['errors']) - 5).' more';
+            }
+
+            return redirect()->route('visits.index')->with(
+                'warning',
+                "Bulk dispatch completed: {$result['imported']} visits scheduled. {$result['skipped']} row(s) skipped: {$errorSummary}"
+            );
+        }
+
+        return redirect()->route('visits.index')->with(
+            'success',
+            "Bulk dispatch successful: {$result['imported']} visits scheduled."
+        );
     }
 }

@@ -10,12 +10,16 @@
             Record and dispatch field visits, monitor real-time GPS check-ins, verify geofence accuracy, and log on-site durations.
         </p>
     </div>
-    <div class="d-flex gap-2">
+    <div class="d-flex flex-wrap gap-2">
         <a href="{{ route('visits.exportCsv', request()->query()) }}" class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" title="Export Current Filtered Visits to CSV">
             <i class="fa-solid fa-file-csv text-success"></i>
             <span>Export CSV</span>
         </a>
         @if(auth()->user()->hasAnyRole(['admin', 'supervisor']))
+        <button type="button" class="btn btn-outline-primary btn-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#bulkImportVisitsModal">
+            <i class="fa-solid fa-file-csv"></i>
+            <span>Bulk Dispatch CSV</span>
+        </button>
         <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-2" data-bs-toggle="modal" data-bs-target="#scheduleVisitModal">
             <i class="fa-solid fa-plus"></i>
             <span>Record / Schedule Visit</span>
@@ -489,6 +493,58 @@
         </div>
     </div>
 </div>
+
+@if(auth()->user()->hasAnyRole(['admin', 'supervisor']))
+<!-- Bulk Dispatch Field Visits Modal -->
+<div class="modal fade" id="bulkImportVisitsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <form action="{{ route('visits.import') }}" method="POST" enctype="multipart/form-data">
+                @csrf
+                <div class="modal-header bg-light">
+                    <h5 class="modal-title fw-bold">
+                        <i class="fa-solid fa-file-csv text-primary me-2"></i>Bulk Dispatch Field Visits
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-3">
+                        Upload a CSV route schedule to mass-dispatch visits for your field officers across target client sites.
+                    </p>
+
+                    <div class="p-3 bg-light rounded border mb-3 small">
+                        <div class="fw-bold mb-1"><i class="fa-solid fa-circle-info text-primary me-1"></i>Expected Columns:</div>
+                        <code class="text-break">employee, location, scheduled_at, purpose, instructions</code>
+                        <div class="text-muted mt-1" style="font-size: 0.75rem;">
+                            &bull; <code>employee</code> accepts Employee Code (e.g. EMP-1003) or Email.<br>
+                            &bull; <code>location</code> accepts Location Code (e.g. LOC-WISM-01) or Name.
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Select CSV File <span class="text-danger">*</span></label>
+                        <input type="file" name="csv_file" class="form-control" accept=".csv,text/csv,text/plain" required>
+                        <small class="text-muted">Maximum file size: 5MB</small>
+                    </div>
+
+                    <div class="d-flex align-items-center justify-content-between p-2 rounded bg-light border">
+                        <span class="small text-muted">Need a template file?</span>
+                        <a href="{{ route('visits.importTemplate') }}" class="btn btn-sm btn-outline-secondary">
+                            <i class="fa-solid fa-download me-1"></i>Download Sample CSV
+                        </a>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary btn-sm">
+                        <i class="fa-solid fa-cloud-arrow-up me-1"></i>Upload & Schedule
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+@endif
 @endsection
 
 @push('scripts')

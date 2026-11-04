@@ -46,6 +46,8 @@ Route::middleware('auth')->group(function () {
             Route::post('/', [UserController::class, 'store'])->name('store');
             Route::put('/{user}', [UserController::class, 'update'])->name('update');
             Route::delete('/{user}', [UserController::class, 'destroy'])->name('destroy');
+            Route::get('/import/template', [UserController::class, 'downloadImportTemplate'])->name('importTemplate');
+            Route::post('/import', [UserController::class, 'importCsv'])->name('import');
         });
     });
 
@@ -74,6 +76,8 @@ Route::middleware('auth')->group(function () {
         Route::middleware('role:admin,supervisor')->group(function () {
             Route::post('/', [LocationController::class, 'store'])->name('store');
             Route::put('/{location}', [LocationController::class, 'update'])->name('update');
+            Route::get('/import/template', [LocationController::class, 'downloadImportTemplate'])->name('importTemplate');
+            Route::post('/import', [LocationController::class, 'importCsv'])->name('import');
         });
 
         Route::delete('/{location}', [LocationController::class, 'destroy'])
@@ -87,9 +91,11 @@ Route::middleware('auth')->group(function () {
         Route::get('/export/csv', [FieldVisitController::class, 'exportCsv'])->name('exportCsv');
 
         // Dispatch visits (Supervisor / Admin)
-        Route::post('/', [FieldVisitController::class, 'store'])
-            ->middleware('role:admin,supervisor')
-            ->name('store');
+        Route::middleware('role:admin,supervisor')->group(function () {
+            Route::post('/', [FieldVisitController::class, 'store'])->name('store');
+            Route::get('/import/template', [FieldVisitController::class, 'downloadImportTemplate'])->name('importTemplate');
+            Route::post('/import', [FieldVisitController::class, 'importCsv'])->name('import');
+        });
 
         // Check-in & Check-out actions (Field Officer, Supervisor, or Admin)
         Route::post('/{visit}/check-in', [FieldVisitController::class, 'checkIn'])->name('checkIn');

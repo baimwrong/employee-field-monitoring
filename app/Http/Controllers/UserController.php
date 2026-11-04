@@ -5,9 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\ActivityLog;
 use App\Models\GeographicalArea;
 use App\Models\User;
+use App\Services\CsvImportService;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class UserController extends Controller
 {
@@ -175,5 +178,90 @@ class UserController extends Controller
         );
 
         return back()->with('success', 'Your account password has been updated successfully.');
+    }
+
+    /**
+     * Download a sample CSV template for bulk staff import.
+     */
+    public function downloadImportTemplate(): StreamedResponse
+    {
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="staff_import_template.csv"',
+        ];
+
+        return response()->streamDownload(function () {
+            $handle = fopen('php://output', 'w');
+            fputcsv($handle, [
+                'name',
+                'email',
+                'employee_code',
+                'phone',
+                'role',
+                'status',
+                'password',
+                'assigned_area',
+            ]);
+            fputcsv($handle, [
+                'Budi Santoso',
+                'budi.santoso@fieldtrack.com',
+                'EMP-2001',
+                '081234567801',
+                'field_officer',
+                'active',
+                'FieldTrack123!',
+                'Central Jakarta Business District',
+            ]);
+            fputcsv($handle, [
+                'Siti Rahmawati',
+                'siti.rahmawati@fieldtrack.com',
+                'EMP-2002',
+                '081234567802',
+                'field_officer',
+                'active',
+                'FieldTrack123!',
+                'South Jakarta Commercial Zone',
+            ]);
+            fputcsv($handle, [
+                'Dewi Lestari',
+                'dewi.lestari@fieldtrack.com',
+                'EMP-2003',
+                '081234567803',
+                'supervisor',
+                'active',
+                'FieldTrack123!',
+                '',
+            ]);
+            fclose($handle);
+        }, 'staff_import_template.csv', $headers);
+    }
+
+    /**
+     * Bulk import staff members from an uploaded CSV file.
+     */
+    public function importCsv(Request $request, CsvImportService $importer): RedirectResponse
+    {
+        $request->validate([
+            'csv_file' => 'required|file|mimes:csv,txt|max:5120',
+        ]);
+
+        $result = $importer->importUsers($request->file('csv_file')->getRealPath());
+
+        if ($result['skipped'] > 0) {
+            $errorSummary = implode('; ', array_slice($result['errors'], 0, 5));
+            if (count($result['errors']) > 5) {
+                $errorSummary .= '... and '.(count($result['errors']) - 5).' more';
+            }
+
+            return redirect()->route('users.index')->with(
+                'warning',
+                "Bulk import completed: {$result['imported']} staff members created. {$result['skipped']} row(s) skipped: {$errorSummary}"
+            );
+        }
+
+        return redirect()->route('users.index')->with(
+            'success',
+            "Bulk import successful: {$result['imported']} staff members created."
+        );
     }
 }
